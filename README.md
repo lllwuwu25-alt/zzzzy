@@ -1,0 +1,47 @@
+# 错题本
+
+一个本地优先的桌面错题整理与复习应用。支持截图收录、连续整理、图片标注、分层题库和自适应复习。
+
+## 本地开发
+
+需要 Node.js LTS、Rust stable，以及对应系统的 Tauri 开发依赖。
+
+```bash
+npm ci
+npm run dev
+```
+
+启动桌面应用：
+
+```bash
+npm run desktop:dev
+```
+
+本地构建安装包：
+
+```bash
+npm run desktop:build
+```
+
+## GitHub 自动打包
+
+仓库包含 `.github/workflows/release.yml`，会为以下平台生成安装包：
+
+- macOS Apple Silicon
+- macOS Intel
+- Windows x64
+- Linux x64
+
+发布新版本时，先同步修改 `package.json`、`src-tauri/Cargo.toml` 和 `src-tauri/tauri.conf.json` 中的版本号，然后任选一种方式：
+
+1. 在 GitHub Actions 中手动运行 `Build desktop installers`。
+2. 推送版本标签，例如 `v0.1.0`。
+
+构建完成后，安装包会进入一个 GitHub Draft Release。检查无误后再手动发布。
+
+macOS 当前使用 ad-hoc 签名，适合内部测试和个人分发；若要面向公众稳定分发，建议配置 Apple Developer ID 与公证。
+
+## 数据
+
+应用不需要登录。绑定本地工作区后，数据会写入用户选择文件夹中的 `notebook.json`，同时保留设备内副本。
+

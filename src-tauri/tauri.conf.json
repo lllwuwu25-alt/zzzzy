@@ -1,0 +1,30 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "错题本",
+  "version": "0.1.0",
+  "identifier": "local.mistake.notebook",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5174",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [{
+      "title": "错题本",
+      "width": 1380,
+      "height": 860,
+      "minWidth": 900,
+      "minHeight": 640,
+      "center": true,
+      "resizable": true
+    }],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "macOS": { "signingIdentity": "-" }
+  }
+}
