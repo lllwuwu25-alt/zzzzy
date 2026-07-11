@@ -22,6 +22,7 @@ export function ImageEditor({ image, onSave, onClose }: { image: ImageAsset; onS
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const drawing = useRef<number[] | null>(null)
+  const previewFrame = useRef<number | null>(null)
 
   const commit = (annotations: Annotation[]) => {
     const nextHistory = history.slice(0, historyIndex + 1)
@@ -40,7 +41,11 @@ export function ImageEditor({ image, onSave, onClose }: { image: ImageAsset; onS
     }
   }, [draft.dataUrl, draft.rotation, draft.annotations, zoom])
 
-  const draw = () => {
+  useEffect(() => () => {
+    if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current)
+  }, [])
+
+  const draw = (preview?: Annotation) => {
     const canvas = canvasRef.current
     const source = imageRef.current
     if (!canvas || !source) return
@@ -57,6 +62,15 @@ export function ImageEditor({ image, onSave, onClose }: { image: ImageAsset; onS
     context.restore()
     context.scale(zoom, zoom)
     draft.annotations.forEach((item) => renderAnnotation(context, item))
+    if (preview) renderAnnotation(context, preview)
+  }
+
+  const drawPreview = (preview: Annotation) => {
+    if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current)
+    previewFrame.current = requestAnimationFrame(() => {
+      draw(preview)
+      previewFrame.current = null
+    })
   }
 
   const position = (event: React.PointerEvent) => {
@@ -82,15 +96,32 @@ export function ImageEditor({ image, onSave, onClose }: { image: ImageAsset; onS
   }
 
   const pointerMove = (event: React.PointerEvent) => {
-    if (!drawing.current || (tool !== 'pen' && tool !== 'highlighter')) return
-    drawing.current.push(...position(event))
+    if (!drawing.current) return
+    const point = position(event)
+    if (tool === 'pen' || tool === 'highlighter') drawing.current.push(...point)
+    else drawing.current = [drawing.current[0], drawing.current[1], ...point]
+    drawPreview(createAnnotation(tool as Exclude<Tool, 'select' | 'eraser'>, [...drawing.current], undefined, 'preview'))
   }
 
   const pointerUp = (event: React.PointerEvent) => {
     if (!drawing.current) return
-    const points = [...drawing.current, ...position(event)]
+    const point = position(event)
+    const points = tool === 'pen' || tool === 'highlighter'
+      ? [...drawing.current, ...point]
+      : [drawing.current[0], drawing.current[1], ...point]
     drawing.current = null
-    commit([...draft.annotations, createAnnotation(tool as Exclude<Tool, 'select' | 'eraser'>, points)])
+    if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current)
+    previewFrame.current = null
+    const annotation = createAnnotation(tool as Exclude<Tool, 'select' | 'eraser'>, points)
+    draw(annotation)
+    commit([...draft.annotations, annotation])
+  }
+
+  const pointerCancel = () => {
+    drawing.current = null
+    if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current)
+    previewFrame.current = null
+    draw()
   }
 
   const undo = () => {
@@ -135,15 +166,15 @@ export function ImageEditor({ image, onSave, onClose }: { image: ImageAsset; onS
         <button className="icon-button" aria-label="放大" onClick={() => setZoom((value) => Math.min(2, value + .1))}><ZoomIn size={17} /></button>
       </div>
       <div className="editor-stage">
-        <canvas ref={canvasRef} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} />
+        <canvas ref={canvasRef} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerCancel} />
       </div>
     </div>
   )
 }
 
-function createAnnotation(tool: Exclude<Tool, 'select' | 'eraser'>, points: number[], text?: string): Annotation {
+function createAnnotation(tool: Exclude<Tool, 'select' | 'eraser'>, points: number[], text?: string, id: string = crypto.randomUUID()): Annotation {
   const colors = { pen: '#d14343', highlighter: '#f2c94c99', text: '#0f2d33', arrow: '#d14343', rect: '#0fa3a8', mask: '#1f2328' }
-  return { id: crypto.randomUUID(), tool, color: colors[tool], width: tool === 'highlighter' ? 18 : 3, points, text }
+  return { id, tool, color: colors[tool], width: tool === 'highlighter' ? 18 : 3, points, text }
 }
 
 function renderAnnotation(context: CanvasRenderingContext2D, item: Annotation) {
