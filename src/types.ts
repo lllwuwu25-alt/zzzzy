@@ -1,6 +1,6 @@
 export type Page = 'review' | 'inbox' | 'library' | 'history' | 'settings'
 export type Rating = 'again' | 'hard' | 'good' | 'easy'
-export type Tool = 'select' | 'pen' | 'highlighter' | 'text' | 'arrow' | 'rect' | 'mask' | 'eraser'
+export type Tool = 'select' | 'pen' | 'highlighter' | 'text' | 'arrow' | 'rect' | 'ellipse' | 'mask' | 'eraser'
 
 export type Annotation = {
   id: string
@@ -9,6 +9,9 @@ export type Annotation = {
   width: number
   points: number[]
   text?: string
+  fontSize?: number
+  opacity?: number
+  coordinateSpace?: 'source'
 }
 
 export type ImageAsset = {
@@ -18,6 +21,9 @@ export type ImageAsset = {
   rotation: number
   crop?: { x: number; y: number; width: number; height: number }
   annotations: Annotation[]
+  editorVersion?: 2
+  sourceWidth?: number
+  sourceHeight?: number
 }
 
 export type Schedule = {

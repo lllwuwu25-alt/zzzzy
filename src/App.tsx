@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArchiveRestore, BookOpenCheck, ChevronDown, ChevronRight, Clock3, FileArchive, FolderCog, History,
   FolderOpen, ImagePlus, Inbox, Layers3, ListFilter, Menu, MoreHorizontal, NotebookTabs, PencilLine, Plus, RotateCcw,
   Search, Settings, ShieldCheck, Trash2, Upload, X,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
+import { AnnotatedImage } from './components/AnnotatedImage'
 import { ImageEditor } from './components/ImageEditor'
 import { selectDue, scheduleLabel, useNotebook } from './store'
 import type { ImageAsset, Mistake, Notebook, Page, Rating } from './types'
@@ -22,30 +23,66 @@ export function App() {
   const [mobileNav, setMobileNav] = useState(false)
   const [dragActive, setDragActive] = useState(false)
   const [captureNotice, setCaptureNotice] = useState('')
+  const [captureBusy, setCaptureBusy] = useState(false)
+  const [grouping, setGrouping] = useState<{ id: string; images: ImageAsset[] }>()
+  const [captureFocus, setCaptureFocus] = useState<string>()
   const addCapture = useNotebook((state) => state.addCapture)
+  const splitCapture = useNotebook((state) => state.splitCapture)
   const inboxCount = useNotebook((state) => state.items.filter((item) => item.status === 'inbox').length)
 
-  const addFiles = async (files: FileList | File[]) => {
-    const images = await Promise.all(Array.from(files).filter((file) => file.type.startsWith('image/')).map(fileToAsset))
-    if (images.length) {
-      addCapture(images)
+  const captureAssets = useCallback((images: ImageAsset[], skipped = 0) => {
+    if (!images.length) { setCaptureNotice(skipped ? '没有找到可导入的图片，请使用 PNG、JPEG、WebP、GIF 或 BMP' : '没有可收录的图片'); return }
+    try {
+      const id = addCapture(images)
+      setCaptureFocus(id)
       setPage('inbox')
-      setCaptureNotice(`已收录 ${images.length} 张图片，可稍后慢慢整理`)
-      window.setTimeout(() => setCaptureNotice(''), 2600)
+      if (images.length > 1) setGrouping({ id, images })
+      setCaptureNotice(`已收录 ${images.length} 张图片${skipped ? `，跳过 ${skipped} 个不支持的文件` : ''}`)
+      window.setTimeout(() => setCaptureNotice(''), 3200)
+    } catch {
+      setCaptureNotice('图片保存失败，可能是设备存储空间不足。请绑定工作区后重试。')
     }
-  }
+  }, [addCapture])
+
+  const addFiles = useCallback(async (files: FileList | File[]) => {
+    const entries = Array.from(files)
+    const supported = entries.filter(isSupportedImageFile)
+    setCaptureBusy(true)
+    const settled = await Promise.allSettled(supported.map(fileToAsset))
+    setCaptureBusy(false)
+    captureAssets(settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []), entries.length - supported.length + settled.filter((result) => result.status === 'rejected').length)
+  }, [captureAssets])
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
-      const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith('image/'))
+      const files = Array.from(event.clipboardData?.files ?? [])
       if (files.length) void addFiles(files)
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [])
+  }, [addFiles])
+
+  useEffect(() => {
+    if (!(typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window)) return
+    let dispose: (() => void) | undefined
+    void import('@tauri-apps/api/webview').then(({ getCurrentWebview }) => getCurrentWebview().onDragDropEvent(async ({ payload }) => {
+      if (payload.type === 'enter' || payload.type === 'over') setDragActive(true)
+      if (payload.type === 'leave') setDragActive(false)
+      if (payload.type === 'drop') {
+        setDragActive(false); setCaptureBusy(true)
+        try {
+          const result = await invoke<{ images: Array<{ name: string; dataUrl: string }>; skipped: number }>('read_dropped_images', { paths: payload.paths })
+          const settled = await Promise.allSettled(result.images.map((entry) => dataUrlToAsset(entry.name, entry.dataUrl)))
+          captureAssets(settled.flatMap((entry) => entry.status === 'fulfilled' ? [entry.value] : []), result.skipped + settled.filter((entry) => entry.status === 'rejected').length)
+        } catch (error) { setCaptureNotice(String(error || '无法读取拖入的图片')) }
+        finally { setCaptureBusy(false) }
+      }
+    })).then((unlisten) => { dispose = unlisten })
+    return () => dispose?.()
+  }, [captureAssets])
 
   return (
-    <div className="app-shell" onDragOver={(event) => { event.preventDefault(); if (Array.from(event.dataTransfer.types).includes('Files')) setDragActive(true) }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false) }} onDrop={(event) => { event.preventDefault(); setDragActive(false); void addFiles(event.dataTransfer.files) }}>
+    <div className="app-shell" onDragOver={(event) => { event.preventDefault(); if (!('__TAURI_INTERNALS__' in window) && Array.from(event.dataTransfer.types).includes('Files')) setDragActive(true) }} onDragLeave={(event) => { if (!('__TAURI_INTERNALS__' in window) && !event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false) }} onDrop={(event) => { event.preventDefault(); if ('__TAURI_INTERNALS__' in window) return; setDragActive(false); void addFiles(event.dataTransfer.files) }}>
       <a className="skip-link" href="#main">跳到主要内容</a>
       <aside className={`sidebar ${mobileNav ? 'open' : ''}`}>
         <div className="brand"><span className="brand-mark"><NotebookTabs size={22} /></span><div><strong>错题本</strong><small>本地学习工作台</small></div></div>
@@ -67,16 +104,21 @@ export function App() {
         </header>
         <main id="main">
           {page === 'review' && <ReviewPage onGoInbox={() => setPage('inbox')} />}
-          {page === 'inbox' && <InboxPage />}
+          {page === 'inbox' && <InboxPage focusId={captureFocus} />}
           {page === 'library' && <LibraryPage />}
           {page === 'history' && <HistoryPage />}
           {page === 'settings' && <SettingsPage />}
         </main>
       </section>
-      {dragActive && <div className="drop-overlay"><div><ImagePlus size={28} /><strong>松开即可收录图片</strong><span>图片会先进入收集箱，不会打断当前工作</span></div></div>}
+      {(dragActive || captureBusy) && <div className="drop-overlay"><div><ImagePlus size={28} /><strong>{captureBusy ? '正在安全收录图片…' : '松开即可收录图片'}</strong><span>图片会先进入收集箱，不会打断当前工作</span></div></div>}
+      {grouping && <CaptureGrouping images={grouping.images} onKeep={() => setGrouping(undefined)} onSplit={() => { const ids = splitCapture(grouping.id); setCaptureFocus(ids[0]); setGrouping(undefined); setCaptureNotice(`已拆成 ${ids.length} 道错题`); window.setTimeout(() => setCaptureNotice(''), 2600) }} />}
       {captureNotice && <div className="toast" role="status">{captureNotice}</div>}
     </div>
   )
+}
+
+function CaptureGrouping({ images, onKeep, onSplit }: { images: ImageAsset[]; onKeep: () => void; onSplit: () => void }) {
+  return <section className="capture-grouping" aria-label="多图分组" role="status"><div className="capture-thumbnails">{images.slice(0, 4).map((image) => <img key={image.id} src={image.dataUrl} alt="" />)}{images.length > 4 && <span>+{images.length - 4}</span>}</div><div><strong>这 {images.length} 张图属于同一道题吗？</strong><span>图片已经保存，可以稍后再整理。</span></div><div className="button-row"><button className="button ghost" onClick={onSplit}>拆成 {images.length} 题</button><button className="button primary" onClick={onKeep}>合为一题</button><button className="icon-button" aria-label="关闭并保留为一题" onClick={onKeep}><X size={16} /></button></div></section>
 }
 
 function CaptureButton({ onFiles }: { onFiles: (files: FileList) => void }) {
@@ -152,18 +194,19 @@ function RatingButton({ id, label, hint, onClick }: { id: Rating; label: string;
   return <button className={`rating ${id}`} onClick={() => onClick(id)}><strong>{label}</strong><span>{hint}</span></button>
 }
 
-function InboxPage() {
+function InboxPage({ focusId }: { focusId?: string }) {
   const allItems = useNotebook((state) => state.items)
   const items = useMemo(() => allItems.filter((item) => item.status === 'inbox'), [allItems])
   const [selected, setSelected] = useState(items[0]?.id)
   const item = items.find((entry) => entry.id === selected) ?? items[0]
   useEffect(() => { if (!items.some((entry) => entry.id === selected)) setSelected(items[0]?.id) }, [items, selected])
+  useEffect(() => { if (focusId && items.some((entry) => entry.id === focusId)) setSelected(focusId) }, [focusId, items])
   if (!item) return <Empty title="收集箱已经整理干净" description="复制截图后直接按 ⌘V，或拖入图片，系统会先替你稳稳保存下来。" icon={Inbox} />
   return (
     <div className="inbox-layout">
       <aside className="inbox-list">
         <div className="panel-heading"><div><h1>待整理</h1><span>还剩 {items.length} 题</span></div><button className="icon-button"><ListFilter size={17} /></button></div>
-        {items.map((entry) => <button key={entry.id} className={entry.id === item.id ? 'active' : ''} onClick={() => setSelected(entry.id)}><span>{entry.images[0] ? <img src={entry.images[0].dataUrl} /> : <ImagePlus />}</span><div><strong>{entry.question}</strong><small>{new Date(entry.createdAt).toLocaleString('zh-CN')}</small></div></button>)}
+        {items.map((entry) => <button key={entry.id} className={entry.id === item.id ? 'active' : ''} onClick={() => setSelected(entry.id)}><span>{entry.images[0] ? <AnnotatedImage image={entry.images[0]} showMasks alt="题目缩略图" /> : <ImagePlus />}</span><div><strong>{entry.question}</strong><small>{new Date(entry.createdAt).toLocaleString('zh-CN')}</small></div></button>)}
       </aside>
       <Organizer item={item} onNext={(id) => setSelected(items.find((entry) => entry.id !== id)?.id ?? '')} remaining={items.length} />
     </div>
@@ -227,7 +270,7 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
         <Field label="标签"><input value={form.tags.join('，')} onChange={(e) => patch('tags', e.target.value.split(/[，,]/).map((value) => value.trim()).filter(Boolean))} placeholder="用逗号分隔，例如：泰勒展开，易错" /></Field>
         <p className="autosave-note"><ShieldCheck size={14} />编辑内容已自动保存到收集箱</p>
       </div>
-      {editingImage && <ImageEditor image={editingImage} onClose={() => setEditingImage(undefined)} onSave={(image) => { const images = form.images.map((entry) => entry.id === image.id ? image : entry); patch('images', images); updateItem(item.id, { images }); setEditingImage(undefined) }} />}
+      {editingImage && <ImageEditor image={editingImage} onClose={() => setEditingImage(undefined)} onChange={async (image) => { const images = form.images.map((entry) => entry.id === image.id ? image : entry); setForm((state) => ({ ...state, images })); updateItem(item.id, { images }); setEditingImage(image) }} />}
     </section>
   )
 }
@@ -343,7 +386,7 @@ function TreeActions({ name, label, onRename, onDelete }: { name: string; label:
 
 function ImageStrip({ images, masked = false, onEdit, onReorder, onDelete, onReplace }: { images: ImageAsset[]; masked?: boolean; onEdit?: (image: ImageAsset) => void; onReorder?: (images: ImageAsset[]) => void; onDelete?: (index: number) => void; onReplace?: (index: number, file?: File) => void }) {
   if (!images.length) return null
-  return <div className="image-strip">{images.map((image, index) => <figure key={image.id}><img src={image.dataUrl} alt={`题目截图 ${index + 1}`} style={{ transform: `rotate(${image.rotation}deg)` }} />{masked && image.annotations.filter((entry) => entry.tool === 'mask').map((entry) => <span key={entry.id} className="answer-mask" />)}{(onEdit || onDelete || onReplace) && <div className="image-actions">{onEdit && <button className="button ghost" type="button" onClick={() => onEdit(image)}><PencilLine size={15} />标注</button>}{onReplace && <label className="button ghost"><Upload size={15} />替换<input hidden type="file" accept="image/*" onChange={(event) => { void onReplace(index, event.target.files?.[0]); event.target.value = '' }} /></label>}{onDelete && <button className="button danger icon-only" type="button" aria-label={`删除第 ${index + 1} 张图片`} onClick={() => onDelete(index)}><Trash2 size={15} /></button>}</div>}{onReorder && index > 0 && <button className="image-order" type="button" aria-label="向前移动" onClick={() => { const next = [...images]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; onReorder(next) }}>←</button>}</figure>)}</div>
+  return <div className="image-strip">{images.map((image, index) => <figure key={image.id}><AnnotatedImage image={image} showMasks={masked || Boolean(onEdit)} alt={`题目截图 ${index + 1}`} />{(onEdit || onDelete || onReplace) && <div className="image-actions">{onEdit && <button className="button ghost" type="button" onClick={() => onEdit(image)}><PencilLine size={15} />标注</button>}{onReplace && <label className="button ghost"><Upload size={15} />替换<input hidden type="file" accept="image/*" onChange={(event) => { void onReplace(index, event.target.files?.[0]); event.target.value = '' }} /></label>}{onDelete && <button className="button danger icon-only" type="button" aria-label={`删除第 ${index + 1} 张图片`} onClick={() => onDelete(index)}><Trash2 size={15} /></button>}</div>}{onReorder && index > 0 && <button className="image-order" type="button" aria-label="向前移动" onClick={() => { const next = [...images]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; onReorder(next) }}>←</button>}</figure>)}</div>
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="field"><span>{label}</span>{children}</label> }
@@ -354,5 +397,18 @@ async function fileToAsset(file: File): Promise<ImageAsset> {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file)
   })
-  return { id: crypto.randomUUID(), name: file.name || `截图-${Date.now()}.png`, dataUrl, rotation: 0, annotations: [] }
+  return dataUrlToAsset(file.name || `截图-${Date.now()}.png`, dataUrl)
+}
+
+function isSupportedImageFile(file: File) {
+  return /^(image\/(png|jpe?g|webp|gif|bmp))$/i.test(file.type) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name)
+}
+
+async function dataUrlToAsset(name: string, dataUrl: string): Promise<ImageAsset> {
+  const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const source = new Image()
+    source.onload = () => resolve({ width: source.naturalWidth, height: source.naturalHeight })
+    source.onerror = reject; source.src = dataUrl
+  })
+  return { id: crypto.randomUUID(), name, dataUrl, rotation: 0, annotations: [], editorVersion: 2, sourceWidth: dimensions.width, sourceHeight: dimensions.height }
 }

@@ -19,7 +19,8 @@ const load = (): Notebook => {
 
 type State = Notebook & {
   lastReview?: Review
-  addCapture: (images: ImageAsset[]) => void
+  addCapture: (images: ImageAsset[]) => string
+  splitCapture: (id: string) => string[]
   updateItem: (id: string, patch: Partial<Mistake>) => void
   saveOrganized: (id: string, patch: Partial<Mistake>) => void
   trashItem: (id: string) => void
@@ -59,18 +60,35 @@ const core = (state: State): Notebook => ({
 
 export const useNotebook = create<State>((set, get) => ({
   ...load(),
-  addCapture: (images) => set((state) => {
+  addCapture: (images) => {
     const stamp = new Date().toISOString()
-    const item: Mistake = {
-      id: uid('item'), status: 'inbox', exam: '', subject: '', chapter: '',
-      question: images.length === 1 ? images[0].name.replace(/\.[^.]+$/, '') : `${images.length} 张待整理截图`,
-      answer: '', cause: '', note: '', tags: [], images, createdAt: stamp, updatedAt: stamp,
-      schedule: { due: stamp, stability: 0.4, difficulty: 5, reps: 0, lapses: 0 },
-    }
-    const next = { ...state, items: [item, ...state.items] }
-    persist(core(next))
-    return next
-  }),
+    const id = uid('item')
+    set((state) => {
+      const item = captureItem(id, images, stamp)
+      const next = { ...state, items: [item, ...state.items] }
+      persist(core(next))
+      return next
+    })
+    return id
+  },
+  splitCapture: (id) => {
+    const source = get().items.find((item) => item.id === id)
+    if (!source || source.images.length < 2) return source ? [source.id] : []
+    const ids = source.images.map(() => uid('item'))
+    set((state) => {
+      const replacements = source.images.map((image, index) => ({
+        ...captureItem(ids[index], [image], source.createdAt),
+        exam: source.exam, subject: source.subject, chapter: source.chapter,
+        answer: source.answer, cause: source.cause, note: source.note, tags: [...source.tags],
+      }))
+      const position = state.items.findIndex((item) => item.id === id)
+      const items = [...state.items]
+      items.splice(position, 1, ...replacements)
+      const next = { ...state, items }
+      persist(core(next)); return next
+    })
+    return ids
+  },
   updateItem: (id, patch) => set((state) => {
     const next = { ...state, items: state.items.map((item) => item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item) }
     persist(core(next))
@@ -200,6 +218,15 @@ export const useNotebook = create<State>((set, get) => ({
     const next = { ...state, taxonomy }; persist(core(next)); set(next)
   },
 }))
+
+function captureItem(id: string, images: ImageAsset[], stamp: string): Mistake {
+  return {
+    id, status: 'inbox', exam: '', subject: '', chapter: '',
+    question: images.length === 1 ? images[0].name.replace(/\.[^.]+$/, '') : `${images.length} 张待整理截图`,
+    answer: '', cause: '', note: '', tags: [], images, createdAt: stamp, updatedAt: stamp,
+    schedule: { due: stamp, stability: 0.4, difficulty: 5, reps: 0, lapses: 0 },
+  }
+}
 
 export const selectDue = (state: State) => state.items
   .filter((item) => item.status === 'ready' && new Date(item.schedule.due).getTime() <= Date.now())
