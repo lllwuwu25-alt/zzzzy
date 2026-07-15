@@ -2,6 +2,22 @@
 
 一个本地优先的桌面错题整理与复习应用。支持截图收录、连续整理、图片标注、分层题库和自适应复习。
 
+## 下载与安装
+
+前往 [Releases 下载页](https://github.com/lllwuwu25-alt/zzzzy/releases)，按照设备选择安装包：
+
+| 你的设备 | 下载这个文件 |
+| --- | --- |
+| Mac，Apple M1 / M2 / M3 / M4 芯片 | 文件名含 `aarch64` 的 `.dmg` |
+| Mac，Intel 芯片 | 文件名含 `x64` 或 `x86_64` 的 `.dmg` |
+| Windows 10 / 11 | 文件名含 `x64-setup` 的 `.exe` |
+| Ubuntu / Debian Linux | 文件名含 `amd64` 的 `.deb` |
+| 其他常见 Linux | 文件名含 `amd64` 的 `.AppImage` |
+
+> 普通用户不需要下载 `.tar.gz`、`.sig`、`Source code.zip` 或 `Source code.tar.gz`。
+
+不知道自己的 Mac 是哪种芯片，或遇到系统拦截时，请查看 [完整下载与安装说明](DOWNLOAD.md)。
+
 ## 本地开发
 
 需要 Node.js LTS、Rust stable，以及对应系统的 Tauri 开发依赖。
@@ -44,4 +60,3 @@ macOS 当前使用 ad-hoc 签名，适合内部测试和个人分发；若要面
 ## 数据
 
 应用不需要登录。绑定本地工作区后，数据会写入用户选择文件夹中的 `notebook.json`，同时保留设备内副本。
-

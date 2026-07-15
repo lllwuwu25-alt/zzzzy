@@ -67,7 +67,24 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 错题本 v__VERSION__
-          releaseBody: 下载与你的系统匹配的安装包。macOS 首次打开未公证版本时，可能需要在“隐私与安全性”中确认。
+          releaseBody: |
+            ## 普通用户下载哪个文件？
+
+            | 你的设备 | 下载文件名中带有 | 文件类型 |
+            | --- | --- | --- |
+            | Mac，Apple M1 / M2 / M3 / M4 芯片 | `aarch64` | `.dmg` |
+            | Mac，Intel 芯片 | `x64` 或 `x86_64` | `.dmg` |
+            | Windows 10 / 11 | `x64-setup` | `.exe` |
+            | Ubuntu / Debian Linux | `amd64` | `.deb` |
+            | 其他常见 Linux | `amd64` | `.AppImage` |
+
+            **只想安装应用时，不要下载 `.tar.gz`、`.sig` 或源码压缩包。** 这些是自动更新、校验或开发用途的文件，不是普通安装包。
+
+            不清楚 Mac 的芯片类型？点击屏幕左上角苹果菜单 → “关于本机”：看到“芯片 Apple M…”就下载 `aarch64.dmg`；看到“处理器 Intel…”就下载 `x64.dmg`。
+
+            macOS 当前使用测试签名。首次打开若被系统拦截，请进入“系统设置 → 隐私与安全性”，找到错题本并选择“仍要打开”。
+
+            更完整的说明见仓库中的 [下载与安装说明](https://github.com/lllwuwu25-alt/zzzzy/blob/main/DOWNLOAD.md)。
           releaseDraft: true
           generateReleaseNotes: true
           prerelease: false
