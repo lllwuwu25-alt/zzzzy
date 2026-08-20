@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { initialNotebook } from './data'
 import { duePriority, scheduleReview } from './lib/fsrs'
-import type { ImageAsset, Mistake, Notebook, Rating, Review, Schedule } from './types'
+import type { ImageAsset, Mistake, Notebook, Rating, Review, ReviewSettings, Schedule } from './types'
 
 const KEY = 'mistake-notebook-v1'
 const uid = (prefix: string) => `${prefix}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`
@@ -11,7 +11,17 @@ const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 const load = (): Notebook => {
   try {
     const value = localStorage.getItem(KEY)
-    return value ? { ...initialNotebook, ...JSON.parse(value) } : initialNotebook
+    if (!value) return initialNotebook
+    const parsed = JSON.parse(value) as Partial<Notebook>
+    return {
+      ...initialNotebook,
+      ...parsed,
+      reviewSettings: {
+        ...initialNotebook.reviewSettings,
+        ...parsed.reviewSettings,
+        intervals: { ...initialNotebook.reviewSettings.intervals, ...parsed.reviewSettings?.intervals },
+      },
+    }
   } catch {
     return initialNotebook
   }
@@ -30,6 +40,7 @@ type State = Notebook & {
   undoRating: () => void
   replaceNotebook: (data: Notebook) => void
   setWorkspace: (path: string) => void
+  setReviewSettings: (settings: ReviewSettings) => void
   addExam: (name: string) => string | undefined
   addSubject: (exam: string, name: string) => string | undefined
   addChapter: (exam: string, subject: string, name: string) => string | undefined
@@ -53,6 +64,7 @@ const core = (state: State): Notebook => ({
   items: state.items,
   reviews: state.reviews,
   taxonomy: state.taxonomy,
+  reviewSettings: state.reviewSettings,
   workspaceName: state.workspaceName,
   workspacePath: state.workspacePath,
   workspaceUpdatedAt: state.workspaceUpdatedAt,
@@ -107,7 +119,7 @@ export const useNotebook = create<State>((set, get) => ({
     const item = state.items.find((entry) => entry.id === id)
     if (!item) return state
     const before = clone(item.schedule)
-    const after = scheduleReview(before, rating)
+    const after = scheduleReview(before, rating, new Date(), state.reviewSettings)
     const review: Review = { id: uid('review'), mistakeId: id, rating, answerText, reviewedAt: new Date().toISOString(), durationSeconds, before, after }
     const next = {
       ...state,
@@ -131,13 +143,28 @@ export const useNotebook = create<State>((set, get) => ({
     return next
   }),
   replaceNotebook: (data) => set(() => {
-    persist(data)
-    return { ...data, lastReview: undefined }
+    const migrated: Notebook = {
+      ...initialNotebook,
+      ...data,
+      reviewSettings: {
+        ...initialNotebook.reviewSettings,
+        ...data.reviewSettings,
+        intervals: { ...initialNotebook.reviewSettings.intervals, ...data.reviewSettings?.intervals },
+      },
+    }
+    persist(migrated)
+    return { ...migrated, lastReview: undefined }
   }),
   setWorkspace: (path) => set((state) => {
     const normalized = path.replace(/[\\/]+$/, '')
     const name = normalized.split(/[\\/]/).pop() || '我的错题本'
     const next = { ...state, workspacePath: normalized, workspaceName: name, workspaceUpdatedAt: new Date().toISOString() }
+    persist(core(next))
+    return next
+  }),
+  setReviewSettings: (reviewSettings) => set((state) => {
+    const intervals = Object.fromEntries(Object.entries(reviewSettings.intervals).map(([key, value]) => [key, Math.min(3650, Math.max(1, Math.round(Number(value) || 1)))])) as ReviewSettings['intervals']
+    const next = { ...state, reviewSettings: { ...reviewSettings, intervals } }
     persist(core(next))
     return next
   }),

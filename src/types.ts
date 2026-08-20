@@ -24,6 +24,13 @@ export type ImageAsset = {
   editorVersion?: 2
   sourceWidth?: number
   sourceHeight?: number
+  recognizedText?: string
+  recognizedAt?: string
+}
+
+export type ReviewSettings = {
+  mode: 'adaptive' | 'custom'
+  intervals: Record<Rating, number>
 }
 
 export type Schedule = {
@@ -73,6 +80,7 @@ export type Notebook = {
   items: Mistake[]
   reviews: Review[]
   taxonomy: Taxonomy
+  reviewSettings: ReviewSettings
   workspaceName: string
   workspacePath?: string
   workspaceUpdatedAt?: string

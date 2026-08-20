@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArchiveRestore, BookOpenCheck, ChevronDown, ChevronRight, Clock3, FileArchive, FolderCog, History,
+  ArchiveRestore, BookOpenCheck, CalendarRange, ChevronDown, ChevronRight, Clock3, FileArchive, FolderCog, History,
   FolderOpen, ImagePlus, Inbox, Layers3, ListFilter, Menu, MoreHorizontal, NotebookTabs, PencilLine, Plus, RotateCcw,
-  Search, Settings, ShieldCheck, Trash2, Upload, X,
+  ScanText, Search, Settings, ShieldCheck, Trash2, Upload, X,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { AnnotatedImage } from './components/AnnotatedImage'
 import { ImageEditor } from './components/ImageEditor'
+import { ratingIntervalHint } from './lib/fsrs'
+import { recognizeImage } from './lib/ocr'
 import { selectDue, scheduleLabel, useNotebook } from './store'
 import type { ImageAsset, Mistake, Notebook, Page, Rating } from './types'
 
@@ -93,7 +95,7 @@ export function App() {
             </button>
           ))}
         </nav>
-        <div className="local-note"><ShieldCheck size={16} /><div><strong>全部保存在本地</strong><span>无登录 · 无云端 · 无 AI</span></div></div>
+        <div className="local-note"><ShieldCheck size={16} /><div><strong>全部保存在本地</strong><span>无登录 · 无云端 · 不上传</span></div></div>
       </aside>
       {mobileNav && <button className="scrim" aria-label="关闭导航" onClick={() => setMobileNav(false)} />}
       <section className="workspace">
@@ -104,7 +106,7 @@ export function App() {
         </header>
         <main id="main">
           {page === 'review' && <ReviewPage onGoInbox={() => setPage('inbox')} />}
-          {page === 'inbox' && <InboxPage focusId={captureFocus} />}
+          {page === 'inbox' && <InboxPage focusId={captureFocus} onFiles={addFiles} />}
           {page === 'library' && <LibraryPage />}
           {page === 'history' && <HistoryPage />}
           {page === 'settings' && <SettingsPage />}
@@ -125,12 +127,17 @@ function CaptureButton({ onFiles }: { onFiles: (files: FileList) => void }) {
   return <label className="button primary capture-button"><ImagePlus size={17} />收录截图<input hidden type="file" accept="image/*" multiple onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} /></label>
 }
 
+function CaptureDropZone({ onFiles, compact = false }: { onFiles: (files: FileList) => void; compact?: boolean }) {
+  return <label className={`capture-dropzone ${compact ? 'compact' : ''}`}><ImagePlus size={compact ? 17 : 24} /><span><strong>{compact ? '拖入图片' : '把题目图片拖到这里'}</strong><small>{compact ? '或点击选择' : '支持 PNG、JPEG、WebP、GIF、BMP，也可以直接粘贴截图'}</small></span><input hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" multiple onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} /></label>
+}
+
 function ReviewPage({ onGoInbox }: { onGoInbox: () => void }) {
   const allItems = useNotebook((state) => state.items)
   const due = useMemo(() => selectDue(useNotebook.getState()), [allItems])
   const rate = useNotebook((state) => state.rate)
   const undo = useNotebook((state) => state.undoRating)
   const lastReview = useNotebook((state) => state.lastReview)
+  const reviewSettings = useNotebook((state) => state.reviewSettings)
   const [index, setIndex] = useState(0)
   const [revealed, setRevealed] = useState(false)
   const [answerText, setAnswerText] = useState('')
@@ -173,10 +180,10 @@ function ReviewPage({ onGoInbox }: { onGoInbox: () => void }) {
               <div className="answer-block"><span>正确答案与思路</span><p>{item.answer || '这道题还没有填写正确答案。可以在全部错题中补充。'}</p></div>
               {item.cause && <div className="cause-block"><span>上次为什么错</span><p>{item.cause}</p></div>}
               <div className="rating-area"><span>这次掌握得怎么样？</span><div className="rating-grid">
-                <RatingButton id="again" label="重来" hint="很快再看" onClick={submitRating} />
-                <RatingButton id="hard" label="困难" hint="缩短间隔" onClick={submitRating} />
-                <RatingButton id="good" label="良好" hint="正常安排" onClick={submitRating} />
-                <RatingButton id="easy" label="简单" hint="延长间隔" onClick={submitRating} />
+                <RatingButton id="again" label="重来" hint={ratingIntervalHint('again', reviewSettings)} onClick={submitRating} />
+                <RatingButton id="hard" label="困难" hint={ratingIntervalHint('hard', reviewSettings)} onClick={submitRating} />
+                <RatingButton id="good" label="良好" hint={ratingIntervalHint('good', reviewSettings)} onClick={submitRating} />
+                <RatingButton id="easy" label="简单" hint={ratingIntervalHint('easy', reviewSettings)} onClick={submitRating} />
               </div></div>
             </div>
           )}
@@ -194,18 +201,19 @@ function RatingButton({ id, label, hint, onClick }: { id: Rating; label: string;
   return <button className={`rating ${id}`} onClick={() => onClick(id)}><strong>{label}</strong><span>{hint}</span></button>
 }
 
-function InboxPage({ focusId }: { focusId?: string }) {
+function InboxPage({ focusId, onFiles }: { focusId?: string; onFiles: (files: FileList) => void }) {
   const allItems = useNotebook((state) => state.items)
   const items = useMemo(() => allItems.filter((item) => item.status === 'inbox'), [allItems])
   const [selected, setSelected] = useState(items[0]?.id)
   const item = items.find((entry) => entry.id === selected) ?? items[0]
   useEffect(() => { if (!items.some((entry) => entry.id === selected)) setSelected(items[0]?.id) }, [items, selected])
   useEffect(() => { if (focusId && items.some((entry) => entry.id === focusId)) setSelected(focusId) }, [focusId, items])
-  if (!item) return <Empty title="收集箱已经整理干净" description="复制截图后直接按 ⌘V，或拖入图片，系统会先替你稳稳保存下来。" icon={Inbox} />
+  if (!item) return <div className="empty-capture"><Empty title="收集箱已经整理干净" description="把题目截图拖到下方，系统会先替你稳稳保存下来。" icon={Inbox} compact /><CaptureDropZone onFiles={onFiles} /></div>
   return (
     <div className="inbox-layout">
       <aside className="inbox-list">
         <div className="panel-heading"><div><h1>待整理</h1><span>还剩 {items.length} 题</span></div><button className="icon-button"><ListFilter size={17} /></button></div>
+        <CaptureDropZone onFiles={onFiles} compact />
         {items.map((entry) => <button key={entry.id} className={entry.id === item.id ? 'active' : ''} onClick={() => setSelected(entry.id)}><span>{entry.images[0] ? <AnnotatedImage image={entry.images[0]} showMasks alt="题目缩略图" /> : <ImagePlus />}</span><div><strong>{entry.question}</strong><small>{new Date(entry.createdAt).toLocaleString('zh-CN')}</small></div></button>)}
       </aside>
       <Organizer item={item} onNext={(id) => setSelected(items.find((entry) => entry.id !== id)?.id ?? '')} remaining={items.length} />
@@ -223,8 +231,16 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
   const addChapter = useNotebook((state) => state.addChapter)
   const [form, setForm] = useState(item)
   const [editingImage, setEditingImage] = useState<ImageAsset>()
+  const [ocrDraft, setOcrDraft] = useState('')
+  const [ocrStatus, setOcrStatus] = useState<'idle' | 'recognizing' | 'done' | 'error'>('idle')
+  const [ocrProgress, setOcrProgress] = useState(0)
+  const [ocrMessage, setOcrMessage] = useState('')
   const imageInput = useRef<HTMLInputElement>(null)
-  useEffect(() => setForm(item), [item.id])
+  useEffect(() => {
+    setForm(item)
+    setOcrDraft(item.images.map((image) => image.recognizedText).filter(Boolean).join('\n\n'))
+    setOcrStatus('idle'); setOcrProgress(0); setOcrMessage('')
+  }, [item.id])
   const exams = taxonomy.exams
   const subjects = exams.find((entry) => entry.name === form.exam)?.subjects ?? []
   const chapters = subjects.find((entry) => entry.name === form.subject)?.chapters ?? []
@@ -251,11 +267,34 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
     images[index] = { ...asset, id: images[index].id }
     patch('images', images)
   }
+  const recognizeAllImages = async () => {
+    if (!form.images.length || ocrStatus === 'recognizing') return
+    setOcrStatus('recognizing'); setOcrProgress(0); setOcrMessage('正在准备本地识别…')
+    const nextImages = [...form.images]
+    try {
+      for (let index = 0; index < nextImages.length; index += 1) {
+        setOcrMessage(`正在识别第 ${index + 1} / ${nextImages.length} 张`)
+        const text = await recognizeImage(nextImages[index].dataUrl, ({ progress }) => setOcrProgress(Math.round(((index + progress) / nextImages.length) * 100)))
+        nextImages[index] = { ...nextImages[index], recognizedText: text, recognizedAt: new Date().toISOString() }
+        setForm((state) => ({ ...state, images: [...nextImages] }))
+        updateItem(item.id, { images: [...nextImages] })
+      }
+      const text = nextImages.map((image) => image.recognizedText?.trim()).filter(Boolean).join('\n\n')
+      setOcrDraft(text)
+      setOcrProgress(100)
+      setOcrStatus('done')
+      setOcrMessage(text ? '识别完成，结果已随图片保存' : '没有识别到清晰文字，可以换一张更清楚的图片')
+    } catch {
+      setOcrStatus('error')
+      setOcrMessage('识别失败。请确认图片清晰，并重新尝试。')
+    }
+  }
   return (
     <section className="organizer">
       <header><div><span>整理错题</span><strong>保存后自动进入下一题</strong></div><div className="button-row"><button className="button danger" onClick={() => { trash(item.id); onNext(item.id) }}><Trash2 size={16} />移到回收站</button><button className="button primary" disabled={!form.exam || !form.subject || !form.chapter || !form.question.trim()} onClick={saveNext}>保存并继续 <span>{remaining - 1 > 0 ? `· 还剩 ${remaining - 1}` : ''}</span></button></div></header>
       <div className="organizer-scroll">
-        <div className="organizer-images"><div className="section-label"><div><strong>题目图片</strong><span>{form.images.length ? `${form.images.length} 张，可排序和继续标注` : '这条记录还没有图片'}</span></div><button className="button ghost" type="button" onClick={() => imageInput.current?.click()}><ImagePlus size={16} />添加图片</button><input ref={imageInput} hidden type="file" accept="image/*" multiple onChange={(event) => void addImages(event.target.files)} /></div>{form.images.length ? <ImageStrip images={form.images} onEdit={setEditingImage} onReorder={(images) => patch('images', images)} onDelete={(index) => patch('images', form.images.filter((_, position) => position !== index))} onReplace={replaceImage} /> : <div className="image-empty"><ImagePlus size={22} /><span>可以只整理文字，也可以从这里补充题目截图</span></div>}</div>
+        <div className="organizer-images"><div className="section-label"><div><strong>题目图片</strong><span>{form.images.length ? `${form.images.length} 张，可排序、标注并识别文字` : '这条记录还没有图片'}</span></div><div className="button-row"><button className="button ghost" type="button" disabled={!form.images.length || ocrStatus === 'recognizing'} onClick={() => void recognizeAllImages()}><ScanText size={16} />{ocrStatus === 'recognizing' ? `识别中 ${ocrProgress}%` : '识别文字'}</button><button className="button ghost" type="button" onClick={() => imageInput.current?.click()}><ImagePlus size={16} />添加图片</button></div><input ref={imageInput} hidden type="file" accept="image/*" multiple onChange={(event) => void addImages(event.target.files)} /></div>{form.images.length ? <ImageStrip images={form.images} onEdit={setEditingImage} onReorder={(images) => patch('images', images)} onDelete={(index) => patch('images', form.images.filter((_, position) => position !== index))} onReplace={replaceImage} /> : <div className="image-empty"><ImagePlus size={22} /><span>可从这里选择图片，也可以拖到窗口直接创建错题</span></div>}
+        {(ocrStatus !== 'idle' || ocrDraft) && <div className={`ocr-panel ${ocrStatus}`}><div className="ocr-panel-heading"><div><ScanText size={17} /><div><strong>图片文字</strong><span>{ocrMessage || '识别结果保存在本地，不会上传图片'}</span></div></div>{ocrStatus === 'recognizing' && <div className="ocr-progress" aria-label={`识别进度 ${ocrProgress}%`}><i style={{ width: `${ocrProgress}%` }} /></div>}</div>{ocrDraft && <><textarea aria-label="识别出的图片文字" value={ocrDraft} onChange={(event) => setOcrDraft(event.target.value)} /><div className="button-row"><button type="button" className="button ghost" onClick={() => patch('question', `${form.question.trim()}${form.question.trim() ? '\n\n' : ''}${ocrDraft}`)}>追加到题干</button><button type="button" className="button primary" onClick={() => patch('question', ocrDraft)}>替换题干</button></div></>}</div>}</div>
         <div className="form-grid three taxonomy-grid">
           <TaxonomySelect label="考试" value={form.exam} options={exams.map((entry) => entry.name)} addLabel="新增考试" onChange={(exam) => patchFields({ exam, subject: '', chapter: '' })} onAdd={(name) => { const error = addExam(name); if (!error) patchFields({ exam: name, subject: '', chapter: '' }); return error }} />
           <TaxonomySelect label="科目" value={form.subject} options={subjects.map((entry) => entry.name)} addLabel="新增科目" disabled={!form.exam} onChange={(subject) => patchFields({ subject, chapter: '' })} onAdd={(name) => { const error = addSubject(form.exam, name); if (!error) patchFields({ subject: name, chapter: '' }); return error }} />
@@ -327,7 +366,7 @@ function SettingsPage() {
   const [workspaceNotice, setWorkspaceNotice] = useState('')
   const isDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const exportData = () => {
-    const data: Notebook = { version: 1, items: notebook.items, reviews: notebook.reviews, taxonomy: notebook.taxonomy, workspaceName: notebook.workspaceName, workspacePath: notebook.workspacePath, workspaceUpdatedAt: new Date().toISOString() }
+    const data: Notebook = { version: 1, items: notebook.items, reviews: notebook.reviews, taxonomy: notebook.taxonomy, reviewSettings: notebook.reviewSettings, workspaceName: notebook.workspaceName, workspacePath: notebook.workspacePath, workspaceUpdatedAt: new Date().toISOString() }
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
     const link = document.createElement('a'); link.href = url; link.download = `错题本备份-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url)
   }
@@ -344,7 +383,19 @@ function SettingsPage() {
     if (!isDesktop) { setWorkspaceNotice('网页预览无法打开 Finder，请在桌面版中使用。'); return }
     try { await invoke('open_workspace_folder', { path: notebook.workspacePath }) } catch { setWorkspaceNotice('无法打开该文件夹，它可能已经被移动或删除。') }
   }
-  return <div className="page settings-page"><div className="page-heading"><div><h1>设置</h1><p>掌控工作区、备份和考试目录。</p></div></div><section className="settings-section catalog-settings"><div><h2>考试目录</h2><p>自定义考试、科目和章节。改名会同步更新已有错题；仍被使用的目录不会被误删。</p></div><CatalogManager /></section><section className="settings-section"><div><h2>本地工作区</h2><p>绑定后会在所选文件夹中维护可读的 notebook.json，并保留设备内副本。</p></div><div><div className="settings-action"><FolderCog size={20} /><div><strong>{notebook.workspaceName}</strong><span title={notebook.workspacePath || undefined}>{notebook.workspacePath || `${notebook.items.length} 道错题 · ${notebook.reviews.length} 条复习记录`}</span></div><div className="workspace-buttons"><button className="button ghost" onClick={openWorkspace} disabled={!notebook.workspacePath}><FolderOpen size={16} />打开文件夹</button><button className="button ghost" onClick={chooseWorkspace}>{notebook.workspacePath ? '重新定位' : '选择文件夹'}</button></div></div>{workspaceNotice && <p className="workspace-notice" role="status">{workspaceNotice}</p>}</div></section><section className="settings-section"><div><h2>备份与恢复</h2><p>备份包含题目元数据、图片和复习记录；导入前会先校验文件结构。</p></div><div className="button-row"><button className="button ghost" onClick={exportData}><FileArchive size={16} />导出备份</button><button className="button ghost" onClick={() => fileInput.current?.click()}><Upload size={16} />从备份恢复</button><input ref={fileInput} hidden type="file" accept=".json" onChange={(e) => importData(e.target.files?.[0])} /></div></section><section className="settings-section"><div><h2>回收站</h2><p>仅永久清理删除已满 30 天的内容，近期误删仍可恢复。</p></div><button className="button danger" onClick={purge}><Trash2 size={16} />清理到期内容</button></section></div>
+  return <div className="page settings-page"><div className="page-heading"><div><h1>设置</h1><p>掌控复习节奏、工作区、备份和考试目录。</p></div></div><section className="settings-section catalog-settings"><div><h2>考试目录</h2><p>自定义考试、科目和章节。改名会同步更新已有错题；仍被使用的目录不会被误删。</p></div><CatalogManager /></section><section className="settings-section"><div><h2>复习周期</h2><p>继续使用自适应安排，或自行决定四档反馈分别间隔多少天。</p></div><ReviewCycleSettings /></section><section className="settings-section"><div><h2>本地工作区</h2><p>绑定后会在所选文件夹中维护可读的 notebook.json，并保留设备内副本。</p></div><div><div className="settings-action"><FolderCog size={20} /><div><strong>{notebook.workspaceName}</strong><span title={notebook.workspacePath || undefined}>{notebook.workspacePath || `${notebook.items.length} 道错题 · ${notebook.reviews.length} 条复习记录`}</span></div><div className="workspace-buttons"><button className="button ghost" onClick={openWorkspace} disabled={!notebook.workspacePath}><FolderOpen size={16} />打开文件夹</button><button className="button ghost" onClick={chooseWorkspace}>{notebook.workspacePath ? '重新定位' : '选择文件夹'}</button></div></div>{workspaceNotice && <p className="workspace-notice" role="status">{workspaceNotice}</p>}</div></section><section className="settings-section"><div><h2>备份与恢复</h2><p>备份包含题目元数据、图片和复习记录；导入前会先校验文件结构。</p></div><div className="button-row"><button className="button ghost" onClick={exportData}><FileArchive size={16} />导出备份</button><button className="button ghost" onClick={() => fileInput.current?.click()}><Upload size={16} />从备份恢复</button><input ref={fileInput} hidden type="file" accept=".json" onChange={(e) => importData(e.target.files?.[0])} /></div></section><section className="settings-section"><div><h2>回收站</h2><p>仅永久清理删除已满 30 天的内容，近期误删仍可恢复。</p></div><button className="button danger" onClick={purge}><Trash2 size={16} />清理到期内容</button></section></div>
+}
+
+function ReviewCycleSettings() {
+  const settings = useNotebook((state) => state.reviewSettings)
+  const save = useNotebook((state) => state.setReviewSettings)
+  const labels: Array<{ id: Rating; label: string; note: string }> = [
+    { id: 'again', label: '重来', note: '忘记或答错' },
+    { id: 'hard', label: '困难', note: '勉强想起' },
+    { id: 'good', label: '良好', note: '正常掌握' },
+    { id: 'easy', label: '简单', note: '非常熟悉' },
+  ]
+  return <div className="review-cycle-card"><div className="cycle-mode" role="radiogroup" aria-label="复习周期模式"><button type="button" role="radio" aria-checked={settings.mode === 'adaptive'} className={settings.mode === 'adaptive' ? 'active' : ''} onClick={() => save({ ...settings, mode: 'adaptive' })}><CalendarRange size={17} /><span><strong>自适应</strong><small>根据掌握程度自动调整</small></span></button><button type="button" role="radio" aria-checked={settings.mode === 'custom'} className={settings.mode === 'custom' ? 'active' : ''} onClick={() => save({ ...settings, mode: 'custom' })}><Settings size={17} /><span><strong>自定义</strong><small>按你设置的固定天数</small></span></button></div>{settings.mode === 'custom' && <div className="cycle-intervals">{labels.map(({ id, label, note }) => <label key={id}><span><strong>{label}</strong><small>{note}</small></span><span className="days-input"><input type="number" min="1" max="3650" step="1" value={settings.intervals[id]} onChange={(event) => save({ ...settings, intervals: { ...settings.intervals, [id]: Number(event.target.value) } })} /><i>天后</i></span></label>)}</div>}<p className="cycle-note">修改后只影响下一次评分，不会改动已有复习记录。</p></div>
 }
 
 function TaxonomySelect({ label, value, options, addLabel, disabled, onChange, onAdd }: { label: string; value: string; options: string[]; addLabel: string; disabled?: boolean; onChange: (value: string) => void; onAdd: (value: string) => string | undefined }) {

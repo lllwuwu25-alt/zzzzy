@@ -1,4 +1,4 @@
-import type { Rating, Schedule } from '../types'
+import type { Rating, ReviewSettings, Schedule } from '../types'
 
 const day = 86_400_000
 const weights: Record<Rating, { difficulty: number; stability: number }> = {
@@ -16,7 +16,7 @@ export const initialSchedule = (now = new Date()): Schedule => ({
   lapses: 0,
 })
 
-export function scheduleReview(current: Schedule, rating: Rating, now = new Date()): Schedule {
+export function scheduleReview(current: Schedule, rating: Rating, now = new Date(), settings?: ReviewSettings): Schedule {
   const elapsed = current.lastReview ? Math.max(0, (now.getTime() - new Date(current.lastReview).getTime()) / day) : 0
   const retrievability = Math.exp(-elapsed / Math.max(0.1, current.stability))
   const weight = weights[rating]
@@ -25,7 +25,11 @@ export function scheduleReview(current: Schedule, rating: Rating, now = new Date
     ? weight.stability
     : weight.stability * (1 + (1 - retrievability) * 1.4) * (1 + (10 - difficulty) / 20)
   const stability = Math.max(0.2, current.stability * growth)
-  const interval = rating === 'again' ? 1 : Math.max(1, Math.round(stability * (rating === 'easy' ? 1.25 : 1)))
+  const adaptiveInterval = rating === 'again' ? 1 : Math.max(1, Math.round(stability * (rating === 'easy' ? 1.25 : 1)))
+  const configured = settings?.intervals[rating]
+  const interval = settings?.mode === 'custom' && Number.isFinite(configured)
+    ? Math.min(3650, Math.max(1, Math.round(configured ?? 1)))
+    : adaptiveInterval
   return {
     due: new Date(now.getTime() + interval * day).toISOString(),
     stability: Number(stability.toFixed(3)),
@@ -34,6 +38,13 @@ export function scheduleReview(current: Schedule, rating: Rating, now = new Date
     lapses: current.lapses + (rating === 'again' ? 1 : 0),
     lastReview: now.toISOString(),
   }
+}
+
+export const ratingIntervalHint = (rating: Rating, settings: ReviewSettings) => {
+  if (settings.mode !== 'custom') return ({
+    again: '很快再看', hard: '缩短间隔', good: '正常安排', easy: '延长间隔',
+  } as Record<Rating, string>)[rating]
+  return `${Math.min(3650, Math.max(1, Math.round(settings.intervals[rating])))} 天后`
 }
 
 export const duePriority = (schedule: Schedule, now = new Date()) => {
