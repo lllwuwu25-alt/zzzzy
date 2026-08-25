@@ -90,34 +90,3 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
           retryAttempts: 2
-
-  publish-v0-1-7:
-    needs: release
-    if: github.ref_name == 'v0.1.7' && needs.release.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Publish v0.1.7 after all installers succeed
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const tag = 'v0.1.7'
-            const releases = await github.paginate(github.rest.repos.listReleases, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              per_page: 100,
-            })
-            const release = releases.find((candidate) => candidate.tag_name === tag)
-            if (!release) {
-              core.setFailed(`未找到 ${tag} 对应的 Release`)
-              return
-            }
-            await github.rest.repos.updateRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: release.id,
-              draft: false,
-            })
-            core.info(`${tag} 已正式发布`)
