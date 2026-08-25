@@ -110,6 +110,20 @@ fn write_atomic(target: &Path, contents: &str) -> Result<(), String> {
     fs::rename(&temporary, target).map_err(|error| error.to_string())
 }
 
+fn validate_notebook_json(contents: &str) -> Result<(), String> {
+    let value: serde_json::Value = serde_json::from_str(contents)
+        .map_err(|_| "错题本数据不是有效的 JSON".to_string())?;
+    let valid = value.get("version").and_then(|value| value.as_u64()) == Some(1)
+        && value.get("items").is_some_and(|value| value.is_array())
+        && value.get("reviews").is_some_and(|value| value.is_array())
+        && value.get("taxonomy").is_some_and(|value| value.is_object());
+    if valid {
+        Ok(())
+    } else {
+        Err("错题本数据结构不完整，已取消写入".into())
+    }
+}
+
 fn app_notebook_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let directory = app.path().app_data_dir().map_err(|error| error.to_string())?;
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
@@ -120,19 +134,37 @@ fn app_notebook_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 fn read_app_notebook(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let target = app_notebook_path(&app)?;
     if !target.exists() {
-        return Ok(None);
+        let temporary = target.with_extension("json.tmp");
+        if !temporary.exists() {
+            return Ok(None);
+        }
+        let contents = fs::read_to_string(temporary).map_err(|error| error.to_string())?;
+        validate_notebook_json(&contents)?;
+        return Ok(Some(contents));
     }
-    fs::read_to_string(target).map(Some).map_err(|error| error.to_string())
+    let contents = fs::read_to_string(&target).map_err(|error| error.to_string())?;
+    if validate_notebook_json(&contents).is_ok() {
+        return Ok(Some(contents));
+    }
+    let temporary = target.with_extension("json.tmp");
+    if temporary.exists() {
+        let recovery = fs::read_to_string(temporary).map_err(|error| error.to_string())?;
+        validate_notebook_json(&recovery)?;
+        return Ok(Some(recovery));
+    }
+    Err("本地 notebook.json 已损坏。原文件仍保留，请从备份恢复。".into())
 }
 
 #[tauri::command]
 fn write_app_notebook(app: tauri::AppHandle, contents: String) -> Result<(), String> {
+    validate_notebook_json(&contents)?;
     let target = app_notebook_path(&app)?;
     write_atomic(&target, &contents)
 }
 
 #[tauri::command]
 fn write_workspace_notebook(path: String, contents: String) -> Result<(), String> {
+    validate_notebook_json(&contents)?;
     let directory = Path::new(&path);
     if !directory.is_dir() {
         return Err("工作区文件夹不存在".into());
@@ -185,5 +217,12 @@ mod tests {
         );
         assert!(!directory.join("notebook.json.tmp").exists());
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn invalid_notebook_json_is_rejected_before_writing() {
+        assert!(validate_notebook_json("not json").is_err());
+        assert!(validate_notebook_json(r#"{"version":1,"items":[]}"#).is_err());
+        assert!(validate_notebook_json(r#"{"version":1,"items":[],"reviews":[],"taxonomy":{}}"#).is_ok());
     }
 }

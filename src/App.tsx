@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArchiveRestore, BookOpenCheck, CalendarRange, ChevronDown, ChevronRight, Clock3, FileArchive, FolderCog, History,
-  FolderOpen, ImagePlus, Inbox, Layers3, ListFilter, Menu, MoreHorizontal, NotebookTabs, PencilLine, Plus, RotateCcw,
+  FolderOpen, ImagePlus, Inbox, Layers3, Menu, NotebookTabs, PencilLine, Plus, RotateCcw,
   ScanText, Search, Settings, ShieldCheck, Trash2, Upload, X,
 } from 'lucide-react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { AnnotatedImage } from './components/AnnotatedImage'
 import { ImageEditor } from './components/ImageEditor'
 import { ratingIntervalHint } from './lib/fsrs'
+import { parseNotebookBackup } from './lib/notebook'
 import { recognizeImage } from './lib/ocr'
 import { selectDue, scheduleLabel, useNotebook } from './store'
 import type { ImageAsset, Mistake, Notebook, Page, Rating } from './types'
@@ -19,6 +20,11 @@ const navigation: Array<{ id: Page; label: string; icon: typeof Inbox }> = [
   { id: 'history', label: '复习记录', icon: History },
   { id: 'settings', label: '设置', icon: Settings },
 ]
+
+const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/bmp'
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024
+const MAX_CAPTURE_FILES = 50
+const MAX_BACKUP_BYTES = 512 * 1024 * 1024
 
 export function App() {
   const [page, setPage] = useState<Page>('review')
@@ -47,12 +53,13 @@ export function App() {
   }, [addCapture])
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
-    const entries = Array.from(files)
+    const allEntries = Array.from(files)
+    const entries = allEntries.slice(0, MAX_CAPTURE_FILES)
     const supported = entries.filter(isSupportedImageFile)
     setCaptureBusy(true)
     const settled = await Promise.allSettled(supported.map(fileToAsset))
     setCaptureBusy(false)
-    await captureAssets(settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []), entries.length - supported.length + settled.filter((result) => result.status === 'rejected').length)
+    await captureAssets(settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []), allEntries.length - supported.length + settled.filter((result) => result.status === 'rejected').length)
   }, [captureAssets])
 
   useEffect(() => {
@@ -120,42 +127,62 @@ export function App() {
         </main>
       </section>
       {(dragActive || captureBusy) && <div className="drop-overlay"><div><ImagePlus size={28} /><strong>{captureBusy ? '正在安全收录图片…' : '松开即可收录图片'}</strong><span>图片会先进入收集箱，不会打断当前工作</span></div></div>}
-      {grouping && <CaptureGrouping images={grouping.images} onKeep={() => setGrouping(undefined)} onSplit={() => { const ids = splitCapture(grouping.id); setCaptureFocus(ids[0]); setGrouping(undefined); setCaptureNotice(`已拆成 ${ids.length} 道错题`); window.setTimeout(() => setCaptureNotice(''), 2600) }} />}
+      {grouping && <CaptureGrouping images={grouping.images} onKeep={() => setGrouping(undefined)} onSplit={async () => { try { const ids = await splitCapture(grouping.id); setCaptureFocus(ids[0]); setGrouping(undefined); setCaptureNotice(`已拆成 ${ids.length} 道错题`); window.setTimeout(() => setCaptureNotice(''), 2600) } catch { setCaptureNotice('拆分没有写入本机存储，请检查磁盘空间后重试。') } }} />}
       {captureNotice && <div className="toast" role="status">{captureNotice}</div>}
     </div>
   )
 }
 
-function CaptureGrouping({ images, onKeep, onSplit }: { images: ImageAsset[]; onKeep: () => void; onSplit: () => void }) {
-  return <section className="capture-grouping" aria-label="多图分组" role="status"><div className="capture-thumbnails">{images.slice(0, 4).map((image) => <img key={image.id} src={image.dataUrl} alt="" />)}{images.length > 4 && <span>+{images.length - 4}</span>}</div><div><strong>这 {images.length} 张图属于同一道题吗？</strong><span>图片已经保存，可以稍后再整理。</span></div><div className="button-row"><button className="button ghost" onClick={onSplit}>拆成 {images.length} 题</button><button className="button primary" onClick={onKeep}>合为一题</button><button className="icon-button" aria-label="关闭并保留为一题" onClick={onKeep}><X size={16} /></button></div></section>
+function CaptureGrouping({ images, onKeep, onSplit }: { images: ImageAsset[]; onKeep: () => void; onSplit: () => void | Promise<void> }) {
+  return <section className="capture-grouping" aria-label="多图分组" role="status"><div className="capture-thumbnails">{images.slice(0, 4).map((image) => <img key={image.id} src={image.dataUrl} alt="" />)}{images.length > 4 && <span>+{images.length - 4}</span>}</div><div><strong>这 {images.length} 张图属于同一道题吗？</strong><span>图片已经保存，可以稍后再整理。</span></div><div className="button-row"><button className="button ghost" onClick={() => void onSplit()}>拆成 {images.length} 题</button><button className="button primary" onClick={onKeep}>合为一题</button><button className="icon-button" aria-label="关闭并保留为一题" onClick={onKeep}><X size={16} /></button></div></section>
 }
 
 function CaptureButton({ onFiles }: { onFiles: (files: FileList) => void }) {
-  return <label className="button primary capture-button"><ImagePlus size={17} />收录截图<input hidden type="file" accept="image/*" multiple onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} /></label>
+  const input = useRef<HTMLInputElement>(null)
+  return <><button type="button" className="button primary capture-button" onClick={() => input.current?.click()}><ImagePlus size={17} />收录截图</button><input ref={input} hidden type="file" accept={IMAGE_ACCEPT} multiple onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} /></>
 }
 
 function CaptureDropZone({ onFiles, compact = false }: { onFiles: (files: FileList) => void; compact?: boolean }) {
-  return <label className={`capture-dropzone ${compact ? 'compact' : ''}`}><ImagePlus size={compact ? 17 : 24} /><span><strong>{compact ? '拖入图片' : '把题目图片拖到这里'}</strong><small>{compact ? '或点击选择' : '支持 PNG、JPEG、WebP、GIF、BMP，也可以直接粘贴截图'}</small></span><input hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" multiple onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} /></label>
+  const input = useRef<HTMLInputElement>(null)
+  return <><button type="button" className={`capture-dropzone ${compact ? 'compact' : ''}`} onClick={() => input.current?.click()}><ImagePlus size={compact ? 17 : 24} /><span><strong>{compact ? '拖入图片' : '把题目图片拖到这里'}</strong><small>{compact ? '或点击选择' : '支持 PNG、JPEG、WebP、GIF、BMP，也可以直接粘贴截图'}</small></span></button><input ref={input} hidden type="file" accept={IMAGE_ACCEPT} multiple onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} /></>
 }
 
 function ReviewPage({ onGoInbox }: { onGoInbox: () => void }) {
   const allItems = useNotebook((state) => state.items)
-  const due = useMemo(() => selectDue(useNotebook.getState()), [allItems])
   const rate = useNotebook((state) => state.rate)
   const undo = useNotebook((state) => state.undoRating)
   const lastReview = useNotebook((state) => state.lastReview)
   const reviewSettings = useNotebook((state) => state.reviewSettings)
-  const [index, setIndex] = useState(0)
+  const [queueIds, setQueueIds] = useState(() => selectDue(useNotebook.getState()).map((item) => item.id))
+  const initialTotal = useRef(queueIds.length)
   const [revealed, setRevealed] = useState(false)
   const [answerText, setAnswerText] = useState('')
+  const [ratingBusy, setRatingBusy] = useState(false)
+  const [reviewError, setReviewError] = useState('')
   const startedAt = useRef(Date.now())
-  const item = due[index]
+  const queue = queueIds.flatMap((id) => { const item = allItems.find((entry) => entry.id === id && entry.status === 'ready'); return item ? [item] : [] })
+  const item = queue[0]
   const complete = !item
 
-  const submitRating = (rating: Rating) => {
-    if (!item) return
-    rate(item.id, rating, answerText, Math.max(1, Math.round((Date.now() - startedAt.current) / 1000)))
-    setRevealed(false); setAnswerText(''); startedAt.current = Date.now()
+  const submitRating = async (rating: Rating) => {
+    if (!item || ratingBusy) return
+    setRatingBusy(true); setReviewError('')
+    try {
+      await rate(item.id, rating, answerText, Math.max(1, Math.round((Date.now() - startedAt.current) / 1000)))
+      setQueueIds((ids) => ids.filter((id) => id !== item.id))
+      setRevealed(false); setAnswerText(''); startedAt.current = Date.now()
+    } catch { setReviewError('评分没有保存成功，请检查磁盘空间后重试。') }
+    finally { setRatingBusy(false) }
+  }
+
+  const undoLast = async () => {
+    if (!lastReview) return
+    setReviewError('')
+    try {
+      await undo()
+      setQueueIds((ids) => [lastReview.mistakeId, ...ids.filter((id) => id !== lastReview.mistakeId)])
+      initialTotal.current = Math.max(initialTotal.current, queueIds.length + 1)
+    } catch { setReviewError('撤销没有保存成功，请稍后重试。') }
   }
 
   if (complete) return (
@@ -163,8 +190,9 @@ function ReviewPage({ onGoInbox }: { onGoInbox: () => void }) {
       <span className="success-orb"><BookOpenCheck size={28} /></span>
       <h1>今天到期的题已经复习完了</h1>
       <p>做得不错。新的安排已根据本次反馈写入本地复习计划。</p>
+      {reviewError && <p className="field-error" role="alert">{reviewError}</p>}
       <div className="button-row">
-        {lastReview && <button className="button ghost" onClick={undo}><RotateCcw size={16} />撤销上一条评分</button>}
+        {lastReview && <button className="button ghost" onClick={() => void undoLast()}><RotateCcw size={16} />撤销上一条评分</button>}
         <button className="button primary" onClick={onGoInbox}>整理收集箱</button>
       </div>
     </div>
@@ -175,37 +203,37 @@ function ReviewPage({ onGoInbox }: { onGoInbox: () => void }) {
       <section className="review-canvas">
         <div className="breadcrumb"><span>{item.exam}</span><ChevronRight /><span>{item.subject}</span><ChevronRight /><strong>{item.chapter}</strong></div>
         <article className="question-sheet">
-          <div className="question-heading"><div><span>题目 {index + 1} / {due.length}</span><h1>{item.question || '未填写题干'}</h1></div><button className="icon-button" aria-label="更多操作"><MoreHorizontal size={18} /></button></div>
+          <div className="question-heading"><div><span>本轮还剩 {queue.length} 题</span><h1>{item.question || '未填写题干'}</h1></div></div>
           <ImageStrip images={item.images} masked={!revealed} />
           {!revealed ? (
             <>
               <label className="field answer-field"><span>输入本次答案（可选）</span><textarea value={answerText} onChange={(event) => setAnswerText(event.target.value)} placeholder="写下你的解题思路或答案，揭示后可以对照……" /></label>
-              <div className="review-actions"><button className="button ghost" onClick={() => setIndex((value) => value + 1)}>暂时跳过</button><button className="button primary" onClick={() => setRevealed(true)}>显示答案</button></div>
+              <div className="review-actions"><button className="button ghost" disabled={queue.length < 2} onClick={() => setQueueIds((ids) => [...ids.slice(1), ids[0]])}>暂时跳过</button><button className="button primary" onClick={() => setRevealed(true)}>显示答案</button></div>
             </>
           ) : (
             <div className="answer-reveal">
               <div className="answer-block"><span>正确答案与思路</span><p>{item.answer || '这道题还没有填写正确答案。可以在全部错题中补充。'}</p></div>
               {item.cause && <div className="cause-block"><span>上次为什么错</span><p>{item.cause}</p></div>}
               <div className="rating-area"><span>这次掌握得怎么样？</span><div className="rating-grid">
-                <RatingButton id="again" label="重来" hint={ratingIntervalHint('again', reviewSettings)} onClick={submitRating} />
-                <RatingButton id="hard" label="困难" hint={ratingIntervalHint('hard', reviewSettings)} onClick={submitRating} />
-                <RatingButton id="good" label="良好" hint={ratingIntervalHint('good', reviewSettings)} onClick={submitRating} />
-                <RatingButton id="easy" label="简单" hint={ratingIntervalHint('easy', reviewSettings)} onClick={submitRating} />
-              </div></div>
+                <RatingButton id="again" label="重来" hint={ratingIntervalHint('again', reviewSettings)} disabled={ratingBusy} onClick={submitRating} />
+                <RatingButton id="hard" label="困难" hint={ratingIntervalHint('hard', reviewSettings)} disabled={ratingBusy} onClick={submitRating} />
+                <RatingButton id="good" label="良好" hint={ratingIntervalHint('good', reviewSettings)} disabled={ratingBusy} onClick={submitRating} />
+                <RatingButton id="easy" label="简单" hint={ratingIntervalHint('easy', reviewSettings)} disabled={ratingBusy} onClick={submitRating} />
+              </div>{reviewError && <small className="field-error" role="alert">{reviewError}</small>}</div>
             </div>
           )}
         </article>
       </section>
       <aside className="queue-panel">
-        <div className="queue-title"><div><span>今日队列</span><strong>{index + 1} / {due.length}</strong></div><div className="progress"><i style={{ width: `${((index + 1) / due.length) * 100}%` }} /></div><small>预计还需 {Math.max(2, (due.length - index) * 3)} 分钟</small></div>
-        <div className="queue-list">{due.slice(index + 1, index + 7).map((entry, position) => <button key={entry.id} onClick={() => setIndex(index + 1 + position)}><span>{index + position + 2}</span><div><strong>{entry.question}</strong><small>{entry.subject} · {entry.chapter}</small></div></button>)}</div>
+        <div className="queue-title"><div><span>今日队列</span><strong>{Math.max(0, initialTotal.current - queue.length)} / {initialTotal.current}</strong></div><div className="progress"><i style={{ width: `${initialTotal.current ? ((initialTotal.current - queue.length) / initialTotal.current) * 100 : 100}%` }} /></div><small>预计还需 {Math.max(2, queue.length * 3)} 分钟</small></div>
+        <div className="queue-list">{queue.slice(1, 7).map((entry, position) => <button key={entry.id} onClick={() => setQueueIds((ids) => [entry.id, ...ids.filter((id) => id !== entry.id)])}><span>{position + 2}</span><div><strong>{entry.question}</strong><small>{entry.subject} · {entry.chapter}</small></div></button>)}</div>
       </aside>
     </div>
   )
 }
 
-function RatingButton({ id, label, hint, onClick }: { id: Rating; label: string; hint: string; onClick: (id: Rating) => void }) {
-  return <button className={`rating ${id}`} onClick={() => onClick(id)}><strong>{label}</strong><span>{hint}</span></button>
+function RatingButton({ id, label, hint, disabled, onClick }: { id: Rating; label: string; hint: string; disabled?: boolean; onClick: (id: Rating) => void | Promise<void> }) {
+  return <button className={`rating ${id}`} disabled={disabled} onClick={() => void onClick(id)}><strong>{label}</strong><span>{hint}</span></button>
 }
 
 function InboxPage({ focusId, onFiles }: { focusId?: string; onFiles: (files: FileList) => void }) {
@@ -219,7 +247,7 @@ function InboxPage({ focusId, onFiles }: { focusId?: string; onFiles: (files: Fi
   return (
     <div className="inbox-layout">
       <aside className="inbox-list">
-        <div className="panel-heading"><div><h1>待整理</h1><span>还剩 {items.length} 题</span></div><button className="icon-button"><ListFilter size={17} /></button></div>
+        <div className="panel-heading"><div><h1>待整理</h1><span>还剩 {items.length} 题</span></div></div>
         <CaptureDropZone onFiles={onFiles} compact />
         {items.map((entry) => <button key={entry.id} className={entry.id === item.id ? 'active' : ''} onClick={() => setSelected(entry.id)}><span>{entry.images[0] ? <AnnotatedImage image={entry.images[0]} showMasks alt="题目缩略图" /> : <ImagePlus />}</span><div><strong>{entry.question}</strong><small>{new Date(entry.createdAt).toLocaleString('zh-CN')}</small></div></button>)}
       </aside>
@@ -231,6 +259,7 @@ function InboxPage({ focusId, onFiles }: { focusId?: string; onFiles: (files: Fi
 function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: string) => void; remaining: number }) {
   const save = useNotebook((state) => state.saveOrganized)
   const updateItem = useNotebook((state) => state.updateItem)
+  const updateItemNow = useNotebook((state) => state.updateItemNow)
   const trash = useNotebook((state) => state.trashItem)
   const taxonomy = useNotebook((state) => state.taxonomy)
   const addExam = useNotebook((state) => state.addExam)
@@ -256,23 +285,35 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
     updateItem(item.id, { [key]: value })
   }
   const patchFields = (values: Partial<Mistake>) => { setForm((state) => ({ ...state, ...values })); updateItem(item.id, values) }
-  const saveNext = () => {
+  const saveNext = async () => {
     if (!form.exam || !form.subject || !form.chapter || !form.question.trim()) return
-    save(item.id, form)
-    onNext(item.id)
+    try {
+      await save(item.id, form)
+      onNext(item.id)
+    } catch {
+      setOcrStatus('error')
+      setOcrMessage('保存失败，请检查磁盘空间后重试。当前内容仍保留在页面中。')
+    }
   }
   const addImages = async (files?: FileList | null) => {
     if (!files?.length) return
-    const assets = await Promise.all(Array.from(files).filter((file) => file.type.startsWith('image/')).map(fileToAsset))
+    const entries = Array.from(files).slice(0, MAX_CAPTURE_FILES)
+    const supported = entries.filter(isSupportedImageFile)
+    const settled = await Promise.allSettled(supported.map(fileToAsset))
+    const assets = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
     if (assets.length) patch('images', [...form.images, ...assets])
+    const skipped = files.length - supported.length + settled.filter((result) => result.status === 'rejected').length
+    if (skipped) { setOcrStatus('error'); setOcrMessage(`已跳过 ${skipped} 个不支持、损坏或超过 25 MB 的文件。`) }
     if (imageInput.current) imageInput.current.value = ''
   }
   const replaceImage = async (index: number, file?: File) => {
-    if (!file?.type.startsWith('image/')) return
-    const asset = await fileToAsset(file)
-    const images = [...form.images]
-    images[index] = { ...asset, id: images[index].id }
-    patch('images', images)
+    if (!file || !isSupportedImageFile(file)) { setOcrStatus('error'); setOcrMessage('请选择 25 MB 以内的 PNG、JPEG、WebP、GIF 或 BMP 图片。'); return }
+    try {
+      const asset = await fileToAsset(file)
+      const images = [...form.images]
+      images[index] = { ...asset, id: images[index].id }
+      patch('images', images)
+    } catch { setOcrStatus('error'); setOcrMessage('这张图片无法读取，原图片没有被替换。') }
   }
   const recognizeAllImages = async () => {
     if (!form.images.length || ocrStatus === 'recognizing') return
@@ -298,9 +339,9 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
   }
   return (
     <section className="organizer">
-      <header><div><span>整理错题</span><strong>保存后自动进入下一题</strong></div><div className="button-row"><button className="button danger" onClick={() => { trash(item.id); onNext(item.id) }}><Trash2 size={16} />移到回收站</button><button className="button primary" disabled={!form.exam || !form.subject || !form.chapter || !form.question.trim()} onClick={saveNext}>保存并继续 <span>{remaining - 1 > 0 ? `· 还剩 ${remaining - 1}` : ''}</span></button></div></header>
+      <header><div><span>整理错题</span><strong>保存后自动进入下一题</strong></div><div className="button-row"><button className="button danger" onClick={() => { trash(item.id); onNext(item.id) }}><Trash2 size={16} />移到回收站</button><button className="button primary" disabled={!form.exam || !form.subject || !form.chapter || !form.question.trim()} onClick={() => void saveNext()}>保存并继续 <span>{remaining - 1 > 0 ? `· 还剩 ${remaining - 1}` : ''}</span></button></div></header>
       <div className="organizer-scroll">
-        <div className="organizer-images"><div className="section-label"><div><strong>题目图片</strong><span>{form.images.length ? `${form.images.length} 张，可排序、标注并识别文字` : '这条记录还没有图片'}</span></div><div className="button-row"><button className="button ghost" type="button" disabled={!form.images.length || ocrStatus === 'recognizing'} onClick={() => void recognizeAllImages()}><ScanText size={16} />{ocrStatus === 'recognizing' ? `识别中 ${ocrProgress}%` : '识别文字'}</button><button className="button ghost" type="button" onClick={() => imageInput.current?.click()}><ImagePlus size={16} />添加图片</button></div><input ref={imageInput} hidden type="file" accept="image/*" multiple onChange={(event) => void addImages(event.target.files)} /></div>{form.images.length ? <ImageStrip images={form.images} onEdit={setEditingImage} onReorder={(images) => patch('images', images)} onDelete={(index) => patch('images', form.images.filter((_, position) => position !== index))} onReplace={replaceImage} /> : <div className="image-empty"><ImagePlus size={22} /><span>可从这里选择图片，也可以拖到窗口直接创建错题</span></div>}
+        <div className="organizer-images"><div className="section-label"><div><strong>题目图片</strong><span>{form.images.length ? `${form.images.length} 张，可排序、标注并识别文字` : '这条记录还没有图片'}</span></div><div className="button-row"><button className="button ghost" type="button" disabled={!form.images.length || ocrStatus === 'recognizing'} onClick={() => void recognizeAllImages()}><ScanText size={16} />{ocrStatus === 'recognizing' ? `识别中 ${ocrProgress}%` : '识别文字'}</button><button className="button ghost" type="button" onClick={() => imageInput.current?.click()}><ImagePlus size={16} />添加图片</button></div><input ref={imageInput} hidden type="file" accept={IMAGE_ACCEPT} multiple onChange={(event) => void addImages(event.target.files)} /></div>{form.images.length ? <ImageStrip images={form.images} onEdit={setEditingImage} onReorder={(images) => patch('images', images)} onDelete={(index) => patch('images', form.images.filter((_, position) => position !== index))} onReplace={replaceImage} /> : <div className="image-empty"><ImagePlus size={22} /><span>可从这里选择图片，也可以拖到窗口直接创建错题</span></div>}
         {(ocrStatus !== 'idle' || ocrDraft) && <div className={`ocr-panel ${ocrStatus}`}><div className="ocr-panel-heading"><div><ScanText size={17} /><div><strong>图片文字</strong><span>{ocrMessage || '识别结果保存在本地，不会上传图片'}</span></div></div>{ocrStatus === 'recognizing' && <div className="ocr-progress" aria-label={`识别进度 ${ocrProgress}%`}><i style={{ width: `${ocrProgress}%` }} /></div>}</div>{ocrDraft && <><textarea aria-label="识别出的图片文字" value={ocrDraft} onChange={(event) => setOcrDraft(event.target.value)} /><div className="button-row"><button type="button" className="button ghost" onClick={() => patch('question', `${form.question.trim()}${form.question.trim() ? '\n\n' : ''}${ocrDraft}`)}>追加到题干</button><button type="button" className="button primary" onClick={() => patch('question', ocrDraft)}>替换题干</button></div></>}</div>}</div>
         <div className="form-grid three taxonomy-grid">
           <TaxonomySelect label="考试" value={form.exam} options={exams.map((entry) => entry.name)} addLabel="新增考试" onChange={(exam) => patchFields({ exam, subject: '', chapter: '' })} onAdd={(name) => { const error = addExam(name); if (!error) patchFields({ exam: name, subject: '', chapter: '' }); return error }} />
@@ -314,9 +355,9 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
           <Field label="个人笔记"><textarea value={form.note} onChange={(e) => patch('note', e.target.value)} placeholder="给下次复习的自己留一句提醒" /></Field>
         </div>
         <Field label="标签"><input value={form.tags.join('，')} onChange={(e) => patch('tags', e.target.value.split(/[，,]/).map((value) => value.trim()).filter(Boolean))} placeholder="用逗号分隔，例如：泰勒展开，易错" /></Field>
-        <p className="autosave-note"><ShieldCheck size={14} />编辑内容已自动保存到收集箱</p>
+        <p className="autosave-note"><ShieldCheck size={14} />编辑内容会自动保存到收集箱</p>
       </div>
-      {editingImage && <ImageEditor image={editingImage} onClose={() => setEditingImage(undefined)} onChange={async (image) => { const images = form.images.map((entry) => entry.id === image.id ? image : entry); setForm((state) => ({ ...state, images })); updateItem(item.id, { images }); setEditingImage(image) }} />}
+      {editingImage && <ImageEditor image={editingImage} onClose={() => setEditingImage(undefined)} onChange={async (image) => { const images = form.images.map((entry) => entry.id === image.id ? image : entry); await updateItemNow(item.id, { images }); setForm((state) => ({ ...state, images })); setEditingImage(image) }} />}
     </section>
   )
 }
@@ -351,6 +392,11 @@ function DetailDrawer({ item, onClose, onTrash, onRestore }: { item: Mistake; on
   const addSubject = useNotebook((state) => state.addSubject)
   const addChapter = useNotebook((state) => state.addChapter)
   const [draft, setDraft] = useState(item)
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
   const exams = taxonomy.exams
   const subjects = exams.find((entry) => entry.name === draft.exam)?.subjects ?? []
   const chapters = subjects.find((entry) => entry.name === draft.subject)?.chapters ?? []
@@ -371,26 +417,29 @@ function SettingsPage() {
   const setWorkspace = useNotebook((state) => state.setWorkspace)
   const fileInput = useRef<HTMLInputElement>(null)
   const [workspaceNotice, setWorkspaceNotice] = useState('')
-  const isDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+  const [backupNotice, setBackupNotice] = useState('')
+  const isDesktop = isTauri()
   const exportData = () => {
-    const data: Notebook = { version: 1, items: notebook.items, reviews: notebook.reviews, taxonomy: notebook.taxonomy, reviewSettings: notebook.reviewSettings, workspaceName: notebook.workspaceName, workspacePath: notebook.workspacePath, workspaceUpdatedAt: new Date().toISOString() }
+    const data: Notebook = { version: 1, items: notebook.items, reviews: notebook.reviews, taxonomy: notebook.taxonomy, reviewSettings: notebook.reviewSettings, workspaceName: notebook.workspaceName, workspaceUpdatedAt: new Date().toISOString() }
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
     const link = document.createElement('a'); link.href = url; link.download = `错题本备份-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url)
   }
   const importData = async (file?: File) => {
     if (!file) return
-    try { const data = JSON.parse(await file.text()) as Notebook; if (data.version !== 1 || !Array.isArray(data.items)) throw new Error(); replace(data) } catch { window.alert('无法读取这个备份文件。请确认它来自错题本。') }
+    if (file.size > MAX_BACKUP_BYTES) { setBackupNotice('备份文件超过 512 MB，无法安全读取。请重新选择较小的备份。'); if (fileInput.current) fileInput.current.value = ''; return }
+    try { const data = parseNotebookBackup(JSON.parse(await file.text())); await replace({ ...data, workspaceName: notebook.workspaceName, workspacePath: notebook.workspacePath, workspaceUpdatedAt: notebook.workspaceUpdatedAt }); setBackupNotice(`恢复完成：${data.items.length} 道错题，${data.reviews.length} 条复习记录。`) } catch { setBackupNotice('无法读取这个备份文件。文件可能损坏，或不是由错题本导出的备份。') }
+    if (fileInput.current) fileInput.current.value = ''
   }
   const chooseWorkspace = async () => {
     if (!isDesktop) { setWorkspaceNotice('网页预览无法访问系统文件夹，请在桌面版中使用。'); return }
-    try { const path = await invoke<string | null>('choose_workspace_folder'); if (path) { setWorkspace(path); setWorkspaceNotice('工作区已绑定，后续修改会同步写入 notebook.json。') } } catch { setWorkspaceNotice('没有完成文件夹绑定，请检查系统权限后重试。') }
+    try { const path = await invoke<string | null>('choose_workspace_folder'); if (path) { await setWorkspace(path); setWorkspaceNotice('工作区已绑定，后续修改会同步写入 notebook.json。') } } catch { setWorkspaceNotice('没有完成文件夹绑定，或该文件夹无法写入。请选择其他文件夹后重试。') }
   }
   const openWorkspace = async () => {
     if (!notebook.workspacePath) { setWorkspaceNotice('请先选择一个工作区文件夹。'); return }
     if (!isDesktop) { setWorkspaceNotice('网页预览无法打开 Finder，请在桌面版中使用。'); return }
     try { await invoke('open_workspace_folder', { path: notebook.workspacePath }) } catch { setWorkspaceNotice('无法打开该文件夹，它可能已经被移动或删除。') }
   }
-  return <div className="page settings-page"><div className="page-heading"><div><h1>设置</h1><p>掌控复习节奏、工作区、备份和考试目录。</p></div></div><section className="settings-section catalog-settings"><div><h2>考试目录</h2><p>自定义考试、科目和章节。改名会同步更新已有错题；仍被使用的目录不会被误删。</p></div><CatalogManager /></section><section className="settings-section"><div><h2>复习周期</h2><p>继续使用自适应安排，或自行决定四档反馈分别间隔多少天。</p></div><ReviewCycleSettings /></section><section className="settings-section"><div><h2>本地工作区</h2><p>绑定后会在所选文件夹中维护可读的 notebook.json，并保留设备内副本。</p></div><div><div className="settings-action"><FolderCog size={20} /><div><strong>{notebook.workspaceName}</strong><span title={notebook.workspacePath || undefined}>{notebook.workspacePath || `${notebook.items.length} 道错题 · ${notebook.reviews.length} 条复习记录`}</span></div><div className="workspace-buttons"><button className="button ghost" onClick={openWorkspace} disabled={!notebook.workspacePath}><FolderOpen size={16} />打开文件夹</button><button className="button ghost" onClick={chooseWorkspace}>{notebook.workspacePath ? '重新定位' : '选择文件夹'}</button></div></div>{workspaceNotice && <p className="workspace-notice" role="status">{workspaceNotice}</p>}</div></section><section className="settings-section"><div><h2>备份与恢复</h2><p>备份包含题目元数据、图片和复习记录；导入前会先校验文件结构。</p></div><div className="button-row"><button className="button ghost" onClick={exportData}><FileArchive size={16} />导出备份</button><button className="button ghost" onClick={() => fileInput.current?.click()}><Upload size={16} />从备份恢复</button><input ref={fileInput} hidden type="file" accept=".json" onChange={(e) => importData(e.target.files?.[0])} /></div></section><section className="settings-section"><div><h2>回收站</h2><p>仅永久清理删除已满 30 天的内容，近期误删仍可恢复。</p></div><button className="button danger" onClick={purge}><Trash2 size={16} />清理到期内容</button></section></div>
+  return <div className="page settings-page"><div className="page-heading"><div><h1>设置</h1><p>掌控复习节奏、工作区、备份和考试目录。</p></div></div><section className="settings-section catalog-settings"><div><h2>考试目录</h2><p>自定义考试、科目和章节。改名会同步更新已有错题；仍被使用的目录不会被误删。</p></div><CatalogManager /></section><section className="settings-section"><div><h2>复习周期</h2><p>继续使用自适应安排，或自行决定四档反馈分别间隔多少天。</p></div><ReviewCycleSettings /></section><section className="settings-section"><div><h2>本地工作区</h2><p>绑定后会在所选文件夹中维护可读的 notebook.json，并保留设备内副本。</p></div><div><div className="settings-action"><FolderCog size={20} /><div><strong>{notebook.workspaceName}</strong><span title={notebook.workspacePath || undefined}>{notebook.workspacePath || `${notebook.items.length} 道错题 · ${notebook.reviews.length} 条复习记录`}</span></div><div className="workspace-buttons"><button className="button ghost" onClick={() => void openWorkspace()} disabled={!notebook.workspacePath}><FolderOpen size={16} />打开文件夹</button><button className="button ghost" onClick={() => void chooseWorkspace()}>{notebook.workspacePath ? '重新定位' : '选择文件夹'}</button></div></div>{workspaceNotice && <p className="workspace-notice" role="status">{workspaceNotice}</p>}</div></section><section className="settings-section"><div><h2>备份与恢复</h2><p>备份包含题目元数据、图片和复习记录；导入前会先校验文件结构。</p></div><div><div className="button-row"><button className="button ghost" onClick={exportData}><FileArchive size={16} />导出备份</button><button className="button ghost" onClick={() => fileInput.current?.click()}><Upload size={16} />从备份恢复</button><input ref={fileInput} hidden type="file" accept="application/json,.json" onChange={(e) => void importData(e.target.files?.[0])} /></div>{backupNotice && <p className="workspace-notice" role="status">{backupNotice}</p>}</div></section><section className="settings-section"><div><h2>回收站</h2><p>仅永久清理删除已满 30 天的内容，近期误删仍可恢复。</p></div><button className="button danger" onClick={purge}><Trash2 size={16} />清理到期内容</button></section></div>
 }
 
 function ReviewCycleSettings() {
@@ -415,7 +464,7 @@ function TaxonomySelect({ label, value, options, addLabel, disabled, onChange, o
     if (message) { setError(message); return }
     setDraft(''); setError(''); setAdding(false)
   }
-  return <div className="field taxonomy-field"><span>{label}</span><div className="taxonomy-select-row"><select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}><option value="">{disabled ? `请先选择上一级` : '请选择'}</option>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select><button type="button" className="mini-add" disabled={disabled} aria-label={addLabel} title={addLabel} onClick={() => { setAdding((value) => !value); setError('') }}><Plus size={16} /></button></div>{adding && <div className="inline-add"><input autoFocus value={draft} onChange={(event) => { setDraft(event.target.value); setError('') }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); submit() } if (event.key === 'Escape') setAdding(false) }} placeholder={addLabel.replace('新增', '输入')} /><button type="button" className="button primary" disabled={!draft.trim()} onClick={submit}>添加</button></div>}{error && <small className="field-error">{error}</small>}</div>
+  return <div className="field taxonomy-field"><span>{label}</span><div className="taxonomy-select-row"><select aria-label={label} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}><option value="">{disabled ? `请先选择上一级` : '请选择'}</option>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select><button type="button" className="mini-add" disabled={disabled} aria-label={addLabel} title={addLabel} onClick={() => { setAdding((value) => !value); setError('') }}><Plus size={16} /></button></div>{adding && <div className="inline-add"><input autoFocus aria-label={addLabel} value={draft} onChange={(event) => { setDraft(event.target.value); setError('') }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); submit() } if (event.key === 'Escape') setAdding(false) }} placeholder={addLabel.replace('新增', '输入')} /><button type="button" className="button primary" disabled={!draft.trim()} onClick={submit}>添加</button></div>}{error && <small className="field-error">{error}</small>}</div>
 }
 
 function CatalogManager() {
@@ -444,7 +493,12 @@ function TreeActions({ name, label, onRename, onDelete }: { name: string; label:
 
 function ImageStrip({ images, masked = false, onEdit, onReorder, onDelete, onReplace }: { images: ImageAsset[]; masked?: boolean; onEdit?: (image: ImageAsset) => void; onReorder?: (images: ImageAsset[]) => void; onDelete?: (index: number) => void; onReplace?: (index: number, file?: File) => void }) {
   if (!images.length) return null
-  return <div className="image-strip">{images.map((image, index) => <figure key={image.id}><AnnotatedImage image={image} showMasks={masked || Boolean(onEdit)} alt={`题目截图 ${index + 1}`} />{(onEdit || onDelete || onReplace) && <div className="image-actions">{onEdit && <button className="button ghost" type="button" onClick={() => onEdit(image)}><PencilLine size={15} />标注</button>}{onReplace && <label className="button ghost"><Upload size={15} />替换<input hidden type="file" accept="image/*" onChange={(event) => { void onReplace(index, event.target.files?.[0]); event.target.value = '' }} /></label>}{onDelete && <button className="button danger icon-only" type="button" aria-label={`删除第 ${index + 1} 张图片`} onClick={() => onDelete(index)}><Trash2 size={15} /></button>}</div>}{onReorder && index > 0 && <button className="image-order" type="button" aria-label="向前移动" onClick={() => { const next = [...images]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; onReorder(next) }}>←</button>}</figure>)}</div>
+  return <div className="image-strip">{images.map((image, index) => <figure key={image.id}><AnnotatedImage image={image} showMasks={masked || Boolean(onEdit)} alt={`题目截图 ${index + 1}`} />{(onEdit || onDelete || onReplace) && <div className="image-actions">{onEdit && <button className="button ghost" type="button" onClick={() => onEdit(image)}><PencilLine size={15} />标注</button>}{onReplace && <ReplaceImageButton onSelect={(file) => onReplace(index, file)} />}{onDelete && <button className="button danger icon-only" type="button" aria-label={`删除第 ${index + 1} 张图片`} onClick={() => onDelete(index)}><Trash2 size={15} /></button>}</div>}{onReorder && index > 0 && <button className="image-order" type="button" aria-label="向前移动" onClick={() => { const next = [...images]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; onReorder(next) }}>←</button>}</figure>)}</div>
+}
+
+function ReplaceImageButton({ onSelect }: { onSelect: (file?: File) => void }) {
+  const input = useRef<HTMLInputElement>(null)
+  return <><button className="button ghost" type="button" onClick={() => input.current?.click()}><Upload size={15} />替换</button><input ref={input} hidden type="file" accept={IMAGE_ACCEPT} onChange={(event) => { void onSelect(event.target.files?.[0]); event.target.value = '' }} /></>
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="field"><span>{label}</span>{children}</label> }
@@ -459,7 +513,7 @@ async function fileToAsset(file: File): Promise<ImageAsset> {
 }
 
 function isSupportedImageFile(file: File) {
-  return /^(image\/(png|jpe?g|webp|gif|bmp))$/i.test(file.type) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name)
+  return file.size > 0 && file.size <= MAX_IMAGE_BYTES && (/^(image\/(png|jpe?g|webp|gif|bmp))$/i.test(file.type) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name))
 }
 
 async function dataUrlToAsset(name: string, dataUrl: string): Promise<ImageAsset> {

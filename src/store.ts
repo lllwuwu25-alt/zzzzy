@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { initialNotebook } from './data'
 import { duePriority, scheduleReview } from './lib/fsrs'
+import { parseNotebookBackup } from './lib/notebook'
 import type { ImageAsset, Mistake, Notebook, Rating, Review, ReviewSettings, Schedule } from './types'
 
 const KEY = 'mistake-notebook-v1'
@@ -22,7 +23,7 @@ const load = (): Notebook => {
   try {
     const value = localStorage.getItem(KEY)
     if (!value) return initialNotebook
-    return normalizeNotebook(JSON.parse(value) as Partial<Notebook>)
+    return parseNotebookBackup(normalizeNotebook(JSON.parse(value) as Partial<Notebook>))
   } catch {
     return initialNotebook
   }
@@ -31,16 +32,17 @@ const load = (): Notebook => {
 type State = Notebook & {
   lastReview?: Review
   addCapture: (images: ImageAsset[]) => Promise<string>
-  splitCapture: (id: string) => string[]
+  splitCapture: (id: string) => Promise<string[]>
   updateItem: (id: string, patch: Partial<Mistake>) => void
-  saveOrganized: (id: string, patch: Partial<Mistake>) => void
+  updateItemNow: (id: string, patch: Partial<Mistake>) => Promise<void>
+  saveOrganized: (id: string, patch: Partial<Mistake>) => Promise<void>
   trashItem: (id: string) => void
   restoreItem: (id: string) => void
   purgeExpired: () => void
-  rate: (id: string, rating: Rating, answerText: string, durationSeconds: number) => void
-  undoRating: () => void
-  replaceNotebook: (data: Notebook) => void
-  setWorkspace: (path: string) => void
+  rate: (id: string, rating: Rating, answerText: string, durationSeconds: number) => Promise<void>
+  undoRating: () => Promise<void>
+  replaceNotebook: (data: Notebook) => Promise<void>
+  setWorkspace: (path: string) => Promise<void>
   setReviewSettings: (settings: ReviewSettings) => void
   addExam: (name: string) => string | undefined
   addSubject: (exam: string, name: string) => string | undefined
@@ -53,11 +55,14 @@ type State = Notebook & {
   deleteChapter: (exam: string, subject: string, name: string) => string | undefined
 }
 
-const persistNotebook = async (state: Notebook) => {
+const persistNotebook = async (state: Notebook, requireWorkspace = false) => {
   const contents = JSON.stringify(state)
   if (isTauri()) {
+    if (state.workspacePath && requireWorkspace) {
+      await invoke('write_workspace_notebook', { path: state.workspacePath, contents })
+    }
     await invoke('write_app_notebook', { contents })
-    if (state.workspacePath) {
+    if (state.workspacePath && !requireWorkspace) {
       await invoke('write_workspace_notebook', { path: state.workspacePath, contents }).catch(() => undefined)
     }
     return
@@ -66,8 +71,8 @@ const persistNotebook = async (state: Notebook) => {
 }
 
 let persistenceQueue = Promise.resolve()
-const queuePersist = (state: Notebook) => {
-  const task = persistenceQueue.then(() => persistNotebook(state))
+const queuePersist = (state: Notebook, requireWorkspace = false) => {
+  const task = persistenceQueue.then(() => persistNotebook(state, requireWorkspace))
   persistenceQueue = task.catch(() => undefined)
   return task
 }
@@ -95,22 +100,22 @@ export const useNotebook = create<State>((set, get) => ({
     set(next)
     return id
   },
-  splitCapture: (id) => {
+  splitCapture: async (id) => {
     const source = get().items.find((item) => item.id === id)
     if (!source || source.images.length < 2) return source ? [source.id] : []
     const ids = source.images.map(() => uid('item'))
-    set((state) => {
-      const replacements = source.images.map((image, index) => ({
-        ...captureItem(ids[index], [image], source.createdAt),
-        exam: source.exam, subject: source.subject, chapter: source.chapter,
-        answer: source.answer, cause: source.cause, note: source.note, tags: [...source.tags],
-      }))
-      const position = state.items.findIndex((item) => item.id === id)
-      const items = [...state.items]
-      items.splice(position, 1, ...replacements)
-      const next = { ...state, items }
-      persist(core(next)); return next
-    })
+    const state = get()
+    const replacements = source.images.map((image, index) => ({
+      ...captureItem(ids[index], [image], source.createdAt),
+      exam: source.exam, subject: source.subject, chapter: source.chapter,
+      answer: source.answer, cause: source.cause, note: source.note, tags: [...source.tags],
+    }))
+    const position = state.items.findIndex((item) => item.id === id)
+    const items = [...state.items]
+    items.splice(position, 1, ...replacements)
+    const next = { ...state, items }
+    await queuePersist(core(next))
+    set(next)
     return ids
   },
   updateItem: (id, patch) => set((state) => {
@@ -118,7 +123,13 @@ export const useNotebook = create<State>((set, get) => ({
     persist(core(next))
     return next
   }),
-  saveOrganized: (id, patch) => get().updateItem(id, { ...patch, status: 'ready' }),
+  updateItemNow: async (id, patch) => {
+    const state = get()
+    const next = { ...state, items: state.items.map((item) => item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item) }
+    await queuePersist(core(next))
+    set(next)
+  },
+  saveOrganized: async (id, patch) => get().updateItemNow(id, { ...patch, status: 'ready' }),
   trashItem: (id) => get().updateItem(id, { status: 'trashed', deletedAt: new Date().toISOString() }),
   restoreItem: (id) => get().updateItem(id, { status: 'ready', deletedAt: undefined }),
   purgeExpired: () => set((state) => {
@@ -127,9 +138,10 @@ export const useNotebook = create<State>((set, get) => ({
     persist(core(next))
     return next
   }),
-  rate: (id, rating, answerText, durationSeconds) => set((state) => {
+  rate: async (id, rating, answerText, durationSeconds) => {
+    const state = get()
     const item = state.items.find((entry) => entry.id === id)
-    if (!item) return state
+    if (!item) return
     const before = clone(item.schedule)
     const after = scheduleReview(before, rating, new Date(), state.reviewSettings)
     const review: Review = { id: uid('review'), mistakeId: id, rating, answerText, reviewedAt: new Date().toISOString(), durationSeconds, before, after }
@@ -139,33 +151,35 @@ export const useNotebook = create<State>((set, get) => ({
       reviews: [review, ...state.reviews],
       lastReview: review,
     }
-    persist(core(next))
-    return next
-  }),
-  undoRating: () => set((state) => {
+    await queuePersist(core(next))
+    set(next)
+  },
+  undoRating: async () => {
+    const state = get()
     const review = state.lastReview
-    if (!review) return state
+    if (!review) return
     const next = {
       ...state,
       items: state.items.map((item) => item.id === review.mistakeId ? { ...item, schedule: review.before } : item),
       reviews: state.reviews.filter((entry) => entry.id !== review.id),
       lastReview: undefined,
     }
-    persist(core(next))
-    return next
-  }),
-  replaceNotebook: (data) => set(() => {
+    await queuePersist(core(next))
+    set(next)
+  },
+  replaceNotebook: async (data) => {
     const migrated = normalizeNotebook(data)
-    persist(migrated)
-    return { ...migrated, lastReview: undefined }
-  }),
-  setWorkspace: (path) => set((state) => {
+    await queuePersist(migrated)
+    set({ ...migrated, lastReview: undefined })
+  },
+  setWorkspace: async (path) => {
+    const state = get()
     const normalized = path.replace(/[\\/]+$/, '')
     const name = normalized.split(/[\\/]/).pop() || '我的错题本'
     const next = { ...state, workspacePath: normalized, workspaceName: name, workspaceUpdatedAt: new Date().toISOString() }
-    persist(core(next))
-    return next
-  }),
+    await queuePersist(core(next), true)
+    set(next)
+  },
   setReviewSettings: (reviewSettings) => set((state) => {
     const intervals = Object.fromEntries(Object.entries(reviewSettings.intervals).map(([key, value]) => [key, Math.min(3650, Math.max(1, Math.round(Number(value) || 1)))])) as ReviewSettings['intervals']
     const next = { ...state, reviewSettings: { ...reviewSettings, intervals } }
@@ -258,7 +272,7 @@ export async function hydrateNotebook() {
       await queuePersist(core(useNotebook.getState()))
       return
     }
-    const notebook = normalizeNotebook(JSON.parse(contents) as Partial<Notebook>)
+    const notebook = parseNotebookBackup(normalizeNotebook(JSON.parse(contents) as Partial<Notebook>))
     useNotebook.setState({ ...notebook, lastReview: undefined })
   } catch {
     // Keep the legacy localStorage state so an older installation can still open.

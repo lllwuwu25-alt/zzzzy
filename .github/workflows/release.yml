@@ -90,3 +90,34 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
           retryAttempts: 2
+
+  publish:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish after all installers succeed
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = context.ref.replace('refs/tags/', '')
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            })
+            const release = releases.find((candidate) => candidate.tag_name === tag)
+            if (!release) {
+              core.setFailed(`未找到 ${tag} 对应的 Release`)
+              return
+            }
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.id,
+              draft: false,
+            })
+            core.info(`${tag} 已正式发布`)

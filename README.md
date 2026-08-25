@@ -57,7 +57,7 @@ npm run desktop:build
 1. 在 GitHub Actions 中手动运行 `Build desktop installers`。
 2. 推送版本标签，例如 `v0.1.0`。
 
-构建完成后，安装包会进入一个 GitHub Draft Release。检查无误后再手动发布。
+由版本标签触发时，四个平台全部构建成功后会自动公开发布；任一平台失败时会保留草稿，不会向用户展示不完整的版本。
 
 macOS 当前使用 ad-hoc 签名，适合内部测试和个人分发；若要面向公众稳定分发，建议配置 Apple Developer ID 与公证。
 

@@ -262,7 +262,8 @@ export function ImageEditor({ image, onChange, onClose }: { image: ImageAsset; o
         <div><strong>图片批注</strong><span>原图不会改变，完成的操作会实时保存</span></div>
         <div className="editor-save-actions">
           <span className={`save-state ${saveState}`} role="status">{saveState === 'saving' ? '保存中…' : saveState === 'failed' ? '保存失败，请重试' : <><Check size={14} />已保存</>}</span>
-          <button className="button primary" onClick={onClose}><Check size={17} />完成</button>
+          {saveState === 'failed' && <button className="button ghost" onClick={() => void save(draft)}>重试保存</button>}
+          <button className="button primary" disabled={saveState !== 'saved'} title={saveState === 'saved' ? undefined : '等待保存成功后即可完成'} onClick={onClose}><Check size={17} />完成</button>
         </div>
       </header>
       <div className="editor-tools" aria-label="标注工具">
