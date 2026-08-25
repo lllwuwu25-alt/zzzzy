@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import { initialNotebook } from './data'
 import { duePriority, scheduleReview } from './lib/fsrs'
 import type { ImageAsset, Mistake, Notebook, Rating, Review, ReviewSettings, Schedule } from './types'
@@ -8,20 +8,21 @@ const KEY = 'mistake-notebook-v1'
 const uid = (prefix: string) => `${prefix}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 
+const normalizeNotebook = (parsed: Partial<Notebook>): Notebook => ({
+  ...initialNotebook,
+  ...parsed,
+  reviewSettings: {
+    ...initialNotebook.reviewSettings,
+    ...parsed.reviewSettings,
+    intervals: { ...initialNotebook.reviewSettings.intervals, ...parsed.reviewSettings?.intervals },
+  },
+})
+
 const load = (): Notebook => {
   try {
     const value = localStorage.getItem(KEY)
     if (!value) return initialNotebook
-    const parsed = JSON.parse(value) as Partial<Notebook>
-    return {
-      ...initialNotebook,
-      ...parsed,
-      reviewSettings: {
-        ...initialNotebook.reviewSettings,
-        ...parsed.reviewSettings,
-        intervals: { ...initialNotebook.reviewSettings.intervals, ...parsed.reviewSettings?.intervals },
-      },
-    }
+    return normalizeNotebook(JSON.parse(value) as Partial<Notebook>)
   } catch {
     return initialNotebook
   }
@@ -29,7 +30,7 @@ const load = (): Notebook => {
 
 type State = Notebook & {
   lastReview?: Review
-  addCapture: (images: ImageAsset[]) => string
+  addCapture: (images: ImageAsset[]) => Promise<string>
   splitCapture: (id: string) => string[]
   updateItem: (id: string, patch: Partial<Mistake>) => void
   saveOrganized: (id: string, patch: Partial<Mistake>) => void
@@ -52,13 +53,25 @@ type State = Notebook & {
   deleteChapter: (exam: string, subject: string, name: string) => string | undefined
 }
 
-const persist = (state: Notebook) => {
+const persistNotebook = async (state: Notebook) => {
   const contents = JSON.stringify(state)
-  localStorage.setItem(KEY, contents)
-  if (state.workspacePath && typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-    void invoke('write_workspace_notebook', { path: state.workspacePath, contents }).catch(() => undefined)
+  if (isTauri()) {
+    await invoke('write_app_notebook', { contents })
+    if (state.workspacePath) {
+      await invoke('write_workspace_notebook', { path: state.workspacePath, contents }).catch(() => undefined)
+    }
+    return
   }
+  localStorage.setItem(KEY, contents)
 }
+
+let persistenceQueue = Promise.resolve()
+const queuePersist = (state: Notebook) => {
+  const task = persistenceQueue.then(() => persistNotebook(state))
+  persistenceQueue = task.catch(() => undefined)
+  return task
+}
+const persist = (state: Notebook) => { void queuePersist(state).catch(() => undefined) }
 const core = (state: State): Notebook => ({
   version: 1,
   items: state.items,
@@ -72,15 +85,14 @@ const core = (state: State): Notebook => ({
 
 export const useNotebook = create<State>((set, get) => ({
   ...load(),
-  addCapture: (images) => {
+  addCapture: async (images) => {
     const stamp = new Date().toISOString()
     const id = uid('item')
-    set((state) => {
-      const item = captureItem(id, images, stamp)
-      const next = { ...state, items: [item, ...state.items] }
-      persist(core(next))
-      return next
-    })
+    const state = get()
+    const item = captureItem(id, images, stamp)
+    const next = { ...state, items: [item, ...state.items] }
+    await queuePersist(core(next))
+    set(next)
     return id
   },
   splitCapture: (id) => {
@@ -143,15 +155,7 @@ export const useNotebook = create<State>((set, get) => ({
     return next
   }),
   replaceNotebook: (data) => set(() => {
-    const migrated: Notebook = {
-      ...initialNotebook,
-      ...data,
-      reviewSettings: {
-        ...initialNotebook.reviewSettings,
-        ...data.reviewSettings,
-        intervals: { ...initialNotebook.reviewSettings.intervals, ...data.reviewSettings?.intervals },
-      },
-    }
+    const migrated = normalizeNotebook(data)
     persist(migrated)
     return { ...migrated, lastReview: undefined }
   }),
@@ -245,6 +249,21 @@ export const useNotebook = create<State>((set, get) => ({
     const next = { ...state, taxonomy }; persist(core(next)); set(next)
   },
 }))
+
+export async function hydrateNotebook() {
+  if (!isTauri()) return
+  try {
+    const contents = await invoke<string | null>('read_app_notebook')
+    if (!contents) {
+      await queuePersist(core(useNotebook.getState()))
+      return
+    }
+    const notebook = normalizeNotebook(JSON.parse(contents) as Partial<Notebook>)
+    useNotebook.setState({ ...notebook, lastReview: undefined })
+  } catch {
+    // Keep the legacy localStorage state so an older installation can still open.
+  }
+}
 
 function captureItem(id: string, images: ImageAsset[], stamp: string): Mistake {
   return {

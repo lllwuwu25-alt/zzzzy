@@ -4,7 +4,7 @@ import {
   FolderOpen, ImagePlus, Inbox, Layers3, ListFilter, Menu, MoreHorizontal, NotebookTabs, PencilLine, Plus, RotateCcw,
   ScanText, Search, Settings, ShieldCheck, Trash2, Upload, X,
 } from 'lucide-react'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import { AnnotatedImage } from './components/AnnotatedImage'
 import { ImageEditor } from './components/ImageEditor'
 import { ratingIntervalHint } from './lib/fsrs'
@@ -32,17 +32,17 @@ export function App() {
   const splitCapture = useNotebook((state) => state.splitCapture)
   const inboxCount = useNotebook((state) => state.items.filter((item) => item.status === 'inbox').length)
 
-  const captureAssets = useCallback((images: ImageAsset[], skipped = 0) => {
+  const captureAssets = useCallback(async (images: ImageAsset[], skipped = 0) => {
     if (!images.length) { setCaptureNotice(skipped ? '没有找到可导入的图片，请使用 PNG、JPEG、WebP、GIF 或 BMP' : '没有可收录的图片'); return }
     try {
-      const id = addCapture(images)
+      const id = await addCapture(images)
       setCaptureFocus(id)
       setPage('inbox')
       if (images.length > 1) setGrouping({ id, images })
       setCaptureNotice(`已收录 ${images.length} 张图片${skipped ? `，跳过 ${skipped} 个不支持的文件` : ''}`)
       window.setTimeout(() => setCaptureNotice(''), 3200)
     } catch {
-      setCaptureNotice('图片保存失败，可能是设备存储空间不足。请绑定工作区后重试。')
+      setCaptureNotice('图片读取完成，但未能写入本机存储。请检查磁盘空间或文件权限后重试。')
     }
   }, [addCapture])
 
@@ -52,7 +52,7 @@ export function App() {
     setCaptureBusy(true)
     const settled = await Promise.allSettled(supported.map(fileToAsset))
     setCaptureBusy(false)
-    captureAssets(settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []), entries.length - supported.length + settled.filter((result) => result.status === 'rejected').length)
+    await captureAssets(settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []), entries.length - supported.length + settled.filter((result) => result.status === 'rejected').length)
   }, [captureAssets])
 
   useEffect(() => {
@@ -65,26 +65,33 @@ export function App() {
   }, [addFiles])
 
   useEffect(() => {
-    if (!(typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window)) return
+    if (!isTauri()) return
+    let mounted = true
     let dispose: (() => void) | undefined
-    void import('@tauri-apps/api/webview').then(({ getCurrentWebview }) => getCurrentWebview().onDragDropEvent(async ({ payload }) => {
-      if (payload.type === 'enter' || payload.type === 'over') setDragActive(true)
-      if (payload.type === 'leave') setDragActive(false)
-      if (payload.type === 'drop') {
-        setDragActive(false); setCaptureBusy(true)
-        try {
-          const result = await invoke<{ images: Array<{ name: string; dataUrl: string }>; skipped: number }>('read_dropped_images', { paths: payload.paths })
-          const settled = await Promise.allSettled(result.images.map((entry) => dataUrlToAsset(entry.name, entry.dataUrl)))
-          captureAssets(settled.flatMap((entry) => entry.status === 'fulfilled' ? [entry.value] : []), result.skipped + settled.filter((entry) => entry.status === 'rejected').length)
-        } catch (error) { setCaptureNotice(String(error || '无法读取拖入的图片')) }
-        finally { setCaptureBusy(false) }
-      }
-    })).then((unlisten) => { dispose = unlisten })
-    return () => dispose?.()
+    void import('@tauri-apps/api/webview').then(async ({ getCurrentWebview }) => {
+      dispose = await getCurrentWebview().onDragDropEvent(async ({ payload }) => {
+        if (!mounted) return
+        if (payload.type === 'enter' || payload.type === 'over') setDragActive(true)
+        if (payload.type === 'leave') setDragActive(false)
+        if (payload.type === 'drop') {
+          setDragActive(false); setCaptureBusy(true)
+          try {
+            const result = await invoke<{ images: Array<{ name: string; dataUrl: string }>; skipped: number }>('read_dropped_images', { paths: payload.paths })
+            const settled = await Promise.allSettled(result.images.map((entry) => dataUrlToAsset(entry.name, entry.dataUrl)))
+            await captureAssets(settled.flatMap((entry) => entry.status === 'fulfilled' ? [entry.value] : []), result.skipped + settled.filter((entry) => entry.status === 'rejected').length)
+          } catch (error) {
+            setCaptureNotice(readableError(error, '无法读取拖入的图片，请确认文件仍在原位置并重试。'))
+          } finally { setCaptureBusy(false) }
+        }
+      })
+    }).catch(() => {
+      if (mounted) setCaptureNotice('拖入功能没有成功启动，请重新打开应用后重试。')
+    })
+    return () => { mounted = false; dispose?.() }
   }, [captureAssets])
 
   return (
-    <div className="app-shell" onDragOver={(event) => { event.preventDefault(); if (!('__TAURI_INTERNALS__' in window) && Array.from(event.dataTransfer.types).includes('Files')) setDragActive(true) }} onDragLeave={(event) => { if (!('__TAURI_INTERNALS__' in window) && !event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false) }} onDrop={(event) => { event.preventDefault(); if ('__TAURI_INTERNALS__' in window) return; setDragActive(false); void addFiles(event.dataTransfer.files) }}>
+    <div className="app-shell" onDragOver={(event) => { event.preventDefault(); if (!isTauri() && Array.from(event.dataTransfer.types).includes('Files')) setDragActive(true) }} onDragLeave={(event) => { if (!isTauri() && !event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false) }} onDrop={(event) => { event.preventDefault(); if (isTauri()) return; setDragActive(false); void addFiles(event.dataTransfer.files) }}>
       <a className="skip-link" href="#main">跳到主要内容</a>
       <aside className={`sidebar ${mobileNav ? 'open' : ''}`}>
         <div className="brand"><span className="brand-mark"><NotebookTabs size={22} /></span><div><strong>错题本</strong><small>本地学习工作台</small></div></div>
@@ -462,4 +469,10 @@ async function dataUrlToAsset(name: string, dataUrl: string): Promise<ImageAsset
     source.onerror = reject; source.src = dataUrl
   })
   return { id: crypto.randomUUID(), name, dataUrl, rotation: 0, annotations: [], editorVersion: 2, sourceWidth: dimensions.width, sourceHeight: dimensions.height }
+}
+
+function readableError(error: unknown, fallback: string) {
+  if (typeof error === 'string' && error.trim()) return error
+  if (error instanceof Error && error.message.trim()) return error.message
+  return fallback
 }

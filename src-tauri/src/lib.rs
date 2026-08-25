@@ -1,6 +1,12 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Serialize;
-use std::{fs, io::Write, path::Path, process::Command};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    process::Command,
+};
+use tauri::Manager;
 
 const MAX_DROPPED_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
 
@@ -92,6 +98,39 @@ fn open_workspace_folder(path: String) -> Result<(), String> {
     })
 }
 
+fn write_atomic(target: &Path, contents: &str) -> Result<(), String> {
+    let temporary = target.with_extension("json.tmp");
+    let mut file = fs::File::create(&temporary).map_err(|error| error.to_string())?;
+    file.write_all(contents.as_bytes()).map_err(|error| error.to_string())?;
+    file.sync_all().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "windows")]
+    if target.exists() {
+        fs::remove_file(target).map_err(|error| error.to_string())?;
+    }
+    fs::rename(&temporary, target).map_err(|error| error.to_string())
+}
+
+fn app_notebook_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let directory = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    Ok(directory.join("notebook.json"))
+}
+
+#[tauri::command]
+fn read_app_notebook(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let target = app_notebook_path(&app)?;
+    if !target.exists() {
+        return Ok(None);
+    }
+    fs::read_to_string(target).map(Some).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn write_app_notebook(app: tauri::AppHandle, contents: String) -> Result<(), String> {
+    let target = app_notebook_path(&app)?;
+    write_atomic(&target, &contents)
+}
+
 #[tauri::command]
 fn write_workspace_notebook(path: String, contents: String) -> Result<(), String> {
     let directory = Path::new(&path);
@@ -99,21 +138,13 @@ fn write_workspace_notebook(path: String, contents: String) -> Result<(), String
         return Err("工作区文件夹不存在".into());
     }
     let target = directory.join("notebook.json");
-    let temporary = directory.join(".notebook.json.tmp");
-    let mut file = fs::File::create(&temporary).map_err(|error| error.to_string())?;
-    file.write_all(contents.as_bytes()).map_err(|error| error.to_string())?;
-    file.sync_all().map_err(|error| error.to_string())?;
-    #[cfg(target_os = "windows")]
-    if target.exists() {
-        fs::remove_file(&target).map_err(|error| error.to_string())?;
-    }
-    fs::rename(&temporary, &target).map_err(|error| error.to_string())
+    write_atomic(&target, &contents)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, write_workspace_notebook, read_dropped_images])
+        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images])
         .run(tauri::generate_context!())
         .expect("error while running mistake notebook");
 }
@@ -135,6 +166,24 @@ mod tests {
         assert_eq!(result.images.len(), 1);
         assert_eq!(result.skipped, 1);
         assert!(result.images[0].data_url.starts_with("data:image/png;base64,"));
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn atomic_notebook_write_replaces_existing_contents() {
+        let directory = std::env::temp_dir().join(format!(
+            "mistake-notebook-write-test-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("notebook.json");
+        write_atomic(&target, r#"{"version":1}"#).unwrap();
+        write_atomic(&target, r#"{"version":2,"items":[]}"#).unwrap();
+        assert_eq!(
+            fs::read_to_string(&target).unwrap(),
+            r#"{"version":2,"items":[]}"#
+        );
+        assert!(!directory.join("notebook.json.tmp").exists());
         let _ = fs::remove_dir_all(directory);
     }
 }
