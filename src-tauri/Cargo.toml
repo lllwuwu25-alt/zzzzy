@@ -1,6 +1,6 @@
 [package]
 name = "mistake-notebook"
-version = "0.1.8"
+version = "0.1.9"
 description = "错题本：本地优先的错题整理与复习系统"
 authors = ["Mistake Notebook"]
 edition = "2021"
