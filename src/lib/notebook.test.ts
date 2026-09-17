@@ -19,4 +19,22 @@ describe('notebook backup validation', () => {
       }],
     })).toThrow()
   })
+
+  it('migrates legacy mistakes to short answer records', () => {
+    const stamp = new Date().toISOString()
+    const restored = parseNotebookBackup({
+      ...initialNotebook,
+      items: [{
+        id: 'legacy', status: 'ready', exam: '考研', subject: '数学', chapter: '极限',
+        question: '旧题', answer: '旧答案', cause: '', note: '', tags: [], images: [],
+        createdAt: stamp, updatedAt: stamp,
+        schedule: { due: stamp, stability: 1, difficulty: 5, reps: 0, lapses: 0 },
+      }],
+    })
+    expect(restored.items[0]).toMatchObject({
+      questionType: 'short-answer',
+      shortAnswer: { keyPoints: [] },
+      answer: '旧答案',
+    })
+  })
 })

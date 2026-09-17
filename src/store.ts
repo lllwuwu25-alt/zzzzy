@@ -3,7 +3,8 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 import { initialNotebook } from './data'
 import { duePriority, scheduleReview } from './lib/fsrs'
 import { parseNotebookBackup } from './lib/notebook'
-import type { ImageAsset, Mistake, Notebook, Rating, Review, ReviewSettings, Schedule } from './types'
+import { defaultTypeContent, normalizeMistakeType } from './lib/question-types'
+import type { ImageAsset, Mistake, Notebook, QuestionType, Rating, Review, ReviewSettings, Schedule } from './types'
 
 const KEY = 'mistake-notebook-v1'
 const uid = (prefix: string) => `${prefix}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`
@@ -17,6 +18,7 @@ const normalizeNotebook = (parsed: Partial<Notebook>): Notebook => ({
     ...parsed.reviewSettings,
     intervals: { ...initialNotebook.reviewSettings.intervals, ...parsed.reviewSettings?.intervals },
   },
+  items: (parsed.items ?? initialNotebook.items).map(normalizeMistakeType),
 })
 
 const load = (): Notebook => {
@@ -32,6 +34,7 @@ const load = (): Notebook => {
 type State = Notebook & {
   lastReview?: Review
   addCapture: (images: ImageAsset[]) => Promise<string>
+  addTypedCaptures: (groups: Array<{ images: ImageAsset[]; questionType: QuestionType }>) => Promise<string[]>
   splitCapture: (id: string) => Promise<string[]>
   updateItem: (id: string, patch: Partial<Mistake>) => void
   updateItemNow: (id: string, patch: Partial<Mistake>) => Promise<void>
@@ -91,14 +94,18 @@ const core = (state: State): Notebook => ({
 export const useNotebook = create<State>((set, get) => ({
   ...load(),
   addCapture: async (images) => {
+    const ids = await get().addTypedCaptures([{ images, questionType: 'short-answer' }])
+    return ids[0]
+  },
+  addTypedCaptures: async (groups) => {
     const stamp = new Date().toISOString()
-    const id = uid('item')
+    const ids = groups.map(() => uid('item'))
     const state = get()
-    const item = captureItem(id, images, stamp)
-    const next = { ...state, items: [item, ...state.items] }
+    const items = groups.map((group, index) => captureItem(ids[index], group.images, stamp, group.questionType))
+    const next = { ...state, items: [...items, ...state.items] }
     await queuePersist(core(next))
     set(next)
-    return id
+    return ids
   },
   splitCapture: async (id) => {
     const source = get().items.find((item) => item.id === id)
@@ -106,7 +113,7 @@ export const useNotebook = create<State>((set, get) => ({
     const ids = source.images.map(() => uid('item'))
     const state = get()
     const replacements = source.images.map((image, index) => ({
-      ...captureItem(ids[index], [image], source.createdAt),
+      ...captureItem(ids[index], [image], source.createdAt, source.questionType),
       exam: source.exam, subject: source.subject, chapter: source.chapter,
       answer: source.answer, cause: source.cause, note: source.note, tags: [...source.tags],
     }))
@@ -279,9 +286,11 @@ export async function hydrateNotebook() {
   }
 }
 
-function captureItem(id: string, images: ImageAsset[], stamp: string): Mistake {
+function captureItem(id: string, images: ImageAsset[], stamp: string, questionType: QuestionType = 'short-answer'): Mistake {
   return {
     id, status: 'inbox', exam: '', subject: '', chapter: '',
+    questionType, ...defaultTypeContent(questionType),
+    recognition: { status: 'idle', reviewed: false },
     question: images.length === 1 ? images[0].name.replace(/\.[^.]+$/, '') : `${images.length} 张待整理截图`,
     answer: '', cause: '', note: '', tags: [], images, createdAt: stamp, updatedAt: stamp,
     schedule: { due: stamp, stability: 0.4, difficulty: 5, reps: 0, lapses: 0 },

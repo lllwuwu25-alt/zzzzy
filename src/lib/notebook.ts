@@ -1,4 +1,5 @@
 import type { Annotation, ImageAsset, Mistake, Notebook, Rating, Review, Schedule, Taxonomy } from '../types'
+import { normalizeMistakeType } from './question-types'
 
 const ratings: Rating[] = ['again', 'hard', 'good', 'easy']
 const imageData = /^data:image\/(png|jpe?g|webp|gif|bmp);base64,/i
@@ -25,9 +26,23 @@ function image(value: unknown): value is ImageAsset {
 }
 
 function mistake(value: unknown): value is Mistake {
-  return record(value) && string(value.id) && ['inbox', 'ready', 'trashed'].includes(String(value.status))
-    && ['exam', 'subject', 'chapter', 'question', 'answer', 'cause', 'note', 'createdAt', 'updatedAt'].every((key) => string(value[key]))
-    && stringList(value.tags) && Array.isArray(value.images) && value.images.every(image) && schedule(value.schedule)
+  if (!record(value)) return false
+  if (!string(value.id) || !['inbox', 'ready', 'trashed'].includes(String(value.status))
+    || !['exam', 'subject', 'chapter', 'question', 'answer', 'cause', 'note', 'createdAt', 'updatedAt'].every((key) => string(value[key]))
+    || !stringList(value.tags) || !Array.isArray(value.images) || !value.images.every(image) || !schedule(value.schedule)) return false
+  if (value.questionType !== undefined && !['fill-blank', 'choice', 'short-answer'].includes(String(value.questionType))) return false
+  if (value.choice !== undefined && (!record(value.choice) || !['single', 'multiple'].includes(String(value.choice.mode))
+    || !Array.isArray(value.choice.options) || !value.choice.options.every((option) => record(option) && string(option.id) && string(option.label) && string(option.text))
+    || !stringList(value.choice.correctOptionIds))) return false
+  if (value.fillBlank !== undefined && (!record(value.fillBlank) || !Array.isArray(value.fillBlank.blanks)
+    || !value.fillBlank.blanks.every((blank) => record(blank) && string(blank.id) && string(blank.answer)))) return false
+  if (value.shortAnswer !== undefined && (!record(value.shortAnswer) || !stringList(value.shortAnswer.keyPoints))) return false
+  if (value.recognition !== undefined && (!record(value.recognition)
+    || !['idle', 'processing', 'done', 'error'].includes(String(value.recognition.status))
+    || typeof value.recognition.reviewed !== 'boolean'
+    || (value.recognition.confidence !== undefined && !finite(value.recognition.confidence))
+    || (value.recognition.message !== undefined && !string(value.recognition.message)))) return false
+  return true
 }
 
 function taxonomy(value: unknown): value is Taxonomy {
@@ -51,5 +66,6 @@ export function parseNotebookBackup(value: unknown): Notebook {
     || !string(value.workspaceName) || (value.workspacePath !== undefined && !string(value.workspacePath))) {
     throw new Error('invalid-notebook-backup')
   }
-  return value as unknown as Notebook
+  const notebook = value as unknown as Notebook
+  return { ...notebook, items: notebook.items.map(normalizeMistakeType) }
 }

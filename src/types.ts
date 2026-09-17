@@ -1,6 +1,34 @@
 export type Page = 'review' | 'inbox' | 'library' | 'history' | 'settings'
 export type Rating = 'again' | 'hard' | 'good' | 'easy'
 export type Tool = 'select' | 'pen' | 'highlighter' | 'text' | 'arrow' | 'rect' | 'ellipse' | 'mask' | 'eraser'
+export type QuestionType = 'fill-blank' | 'choice' | 'short-answer'
+
+export type ChoiceOption = {
+  id: string
+  label: string
+  text: string
+}
+
+export type ChoiceContent = {
+  mode: 'single' | 'multiple'
+  options: ChoiceOption[]
+  correctOptionIds: string[]
+}
+
+export type FillBlankContent = {
+  blanks: Array<{ id: string; answer: string }>
+}
+
+export type ShortAnswerContent = {
+  keyPoints: string[]
+}
+
+export type RecognitionState = {
+  status: 'idle' | 'processing' | 'done' | 'error'
+  confidence?: number
+  reviewed: boolean
+  message?: string
+}
 
 export type Annotation = {
   id: string
@@ -49,7 +77,12 @@ export type Mistake = {
   subject: string
   chapter: string
   question: string
+  questionType: QuestionType
   answer: string
+  choice?: ChoiceContent
+  fillBlank?: FillBlankContent
+  shortAnswer?: ShortAnswerContent
+  recognition?: RecognitionState
   cause: string
   note: string
   tags: string[]
