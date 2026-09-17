@@ -291,7 +291,7 @@ function captureItem(id: string, images: ImageAsset[], stamp: string, questionTy
     id, status: 'inbox', exam: '', subject: '', chapter: '',
     questionType, ...defaultTypeContent(questionType),
     recognition: { status: 'idle', reviewed: false },
-    question: images.length === 1 ? images[0].name.replace(/\.[^.]+$/, '') : `${images.length} 张待整理截图`,
+    question: '',
     answer: '', cause: '', note: '', tags: [], images, createdAt: stamp, updatedAt: stamp,
     schedule: { due: stamp, stability: 0.4, difficulty: 5, reps: 0, lapses: 0 },
   }

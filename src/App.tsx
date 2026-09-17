@@ -6,10 +6,15 @@ import {
 } from 'lucide-react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { AnnotatedImage } from './components/AnnotatedImage'
+import { CaptureImportDialog, type TypedImportGroup } from './components/CaptureImportDialog'
 import { ImageEditor } from './components/ImageEditor'
+import { QuestionTypeFields } from './components/QuestionTypeFields'
+import { QuestionAnswerInput, QuestionAnswerReveal } from './components/QuestionAnswerInput'
 import { ratingIntervalHint } from './lib/fsrs'
 import { parseNotebookBackup } from './lib/notebook'
-import { recognizeImage } from './lib/ocr'
+import { recognizeTypedImage } from './lib/ocr'
+import { parseRecognizedQuestion } from './lib/ocr-parser'
+import { applyParsedQuestion } from './lib/question-types'
 import { selectDue, scheduleLabel, useNotebook } from './store'
 import type { ImageAsset, Mistake, Notebook, Page, Rating } from './types'
 
@@ -25,6 +30,7 @@ const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/bmp'
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024
 const MAX_CAPTURE_FILES = 50
 const MAX_BACKUP_BYTES = 512 * 1024 * 1024
+type PendingImport = { id: string; images: ImageAsset[]; skipped: number }
 
 export function App() {
   const [page, setPage] = useState<Page>('review')
@@ -32,25 +38,25 @@ export function App() {
   const [dragActive, setDragActive] = useState(false)
   const [captureNotice, setCaptureNotice] = useState('')
   const [captureBusy, setCaptureBusy] = useState(false)
-  const [grouping, setGrouping] = useState<{ id: string; images: ImageAsset[] }>()
+  const [importQueue, setImportQueue] = useState<PendingImport[]>([])
   const [captureFocus, setCaptureFocus] = useState<string>()
-  const addCapture = useNotebook((state) => state.addCapture)
-  const splitCapture = useNotebook((state) => state.splitCapture)
+  const addTypedCaptures = useNotebook((state) => state.addTypedCaptures)
   const inboxCount = useNotebook((state) => state.items.filter((item) => item.status === 'inbox').length)
+  const pendingImport = importQueue[0]
 
   const captureAssets = useCallback(async (images: ImageAsset[], skipped = 0) => {
     if (!images.length) { setCaptureNotice(skipped ? '没有找到可导入的图片，请使用 PNG、JPEG、WebP、GIF 或 BMP' : '没有可收录的图片'); return }
-    try {
-      const id = await addCapture(images)
-      setCaptureFocus(id)
-      setPage('inbox')
-      if (images.length > 1) setGrouping({ id, images })
-      setCaptureNotice(`已收录 ${images.length} 张图片${skipped ? `，跳过 ${skipped} 个不支持的文件` : ''}`)
-      window.setTimeout(() => setCaptureNotice(''), 3200)
-    } catch {
-      setCaptureNotice('图片读取完成，但未能写入本机存储。请检查磁盘空间或文件权限后重试。')
-    }
-  }, [addCapture])
+    setImportQueue((queue) => [...queue, { id: crypto.randomUUID(), images, skipped }])
+  }, [])
+
+  const completeImport = useCallback(async (groups: TypedImportGroup[]) => {
+    const ids = await addTypedCaptures(groups.map(({ images, questionType }) => ({ images, questionType })))
+    setCaptureFocus(ids[0])
+    setPage('inbox')
+    setImportQueue((queue) => queue.slice(1))
+    setCaptureNotice(`已创建 ${ids.length} 道错题，正在本机识别文字`)
+    window.setTimeout(() => setCaptureNotice(''), 3200)
+  }, [addTypedCaptures])
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const allEntries = Array.from(files)
@@ -126,15 +132,11 @@ export function App() {
           {page === 'settings' && <SettingsPage />}
         </main>
       </section>
-      {(dragActive || captureBusy) && <div className="drop-overlay"><div><ImagePlus size={28} /><strong>{captureBusy ? '正在安全收录图片…' : '松开即可收录图片'}</strong><span>图片会先进入收集箱，不会打断当前工作</span></div></div>}
-      {grouping && <CaptureGrouping images={grouping.images} onKeep={() => setGrouping(undefined)} onSplit={async () => { try { const ids = await splitCapture(grouping.id); setCaptureFocus(ids[0]); setGrouping(undefined); setCaptureNotice(`已拆成 ${ids.length} 道错题`); window.setTimeout(() => setCaptureNotice(''), 2600) } catch { setCaptureNotice('拆分没有写入本机存储，请检查磁盘空间后重试。') } }} />}
+      {(dragActive || captureBusy) && <div className="drop-overlay"><div><ImagePlus size={28} /><strong>{captureBusy ? '正在读取图片…' : '松开后选择分组与题型'}</strong><span>确认题型后才会创建错题，图片不会上传</span></div></div>}
+      {pendingImport && <CaptureImportDialog images={pendingImport.images} skipped={pendingImport.skipped} onCancel={() => setImportQueue((queue) => queue.slice(1))} onComplete={completeImport} />}
       {captureNotice && <div className="toast" role="status">{captureNotice}</div>}
     </div>
   )
-}
-
-function CaptureGrouping({ images, onKeep, onSplit }: { images: ImageAsset[]; onKeep: () => void; onSplit: () => void | Promise<void> }) {
-  return <section className="capture-grouping" aria-label="多图分组" role="status"><div className="capture-thumbnails">{images.slice(0, 4).map((image) => <img key={image.id} src={image.dataUrl} alt="" />)}{images.length > 4 && <span>+{images.length - 4}</span>}</div><div><strong>这 {images.length} 张图属于同一道题吗？</strong><span>图片已经保存，可以稍后再整理。</span></div><div className="button-row"><button className="button ghost" onClick={() => void onSplit()}>拆成 {images.length} 题</button><button className="button primary" onClick={onKeep}>合为一题</button><button className="icon-button" aria-label="关闭并保留为一题" onClick={onKeep}><X size={16} /></button></div></section>
 }
 
 function CaptureButton({ onFiles }: { onFiles: (files: FileList) => void }) {
@@ -207,12 +209,12 @@ function ReviewPage({ onGoInbox }: { onGoInbox: () => void }) {
           <ImageStrip images={item.images} masked={!revealed} />
           {!revealed ? (
             <>
-              <label className="field answer-field"><span>输入本次答案（可选）</span><textarea value={answerText} onChange={(event) => setAnswerText(event.target.value)} placeholder="写下你的解题思路或答案，揭示后可以对照……" /></label>
-              <div className="review-actions"><button className="button ghost" disabled={queue.length < 2} onClick={() => setQueueIds((ids) => [...ids.slice(1), ids[0]])}>暂时跳过</button><button className="button primary" onClick={() => setRevealed(true)}>显示答案</button></div>
+              <QuestionAnswerInput item={item} value={answerText} onChange={setAnswerText} />
+              <div className="review-actions"><button className="button ghost" disabled={queue.length < 2} onClick={() => { setQueueIds((ids) => [...ids.slice(1), ids[0]]); setAnswerText(''); setRevealed(false); startedAt.current = Date.now() }}>暂时跳过</button><button className="button primary" onClick={() => setRevealed(true)}>显示答案</button></div>
             </>
           ) : (
             <div className="answer-reveal">
-              <div className="answer-block"><span>正确答案与思路</span><p>{item.answer || '这道题还没有填写正确答案。可以在全部错题中补充。'}</p></div>
+              <QuestionAnswerReveal item={item} />
               {item.cause && <div className="cause-block"><span>上次为什么错</span><p>{item.cause}</p></div>}
               <div className="rating-area"><span>这次掌握得怎么样？</span><div className="rating-grid">
                 <RatingButton id="again" label="重来" hint={ratingIntervalHint('again', reviewSettings)} disabled={ratingBusy} onClick={submitRating} />
@@ -249,7 +251,7 @@ function InboxPage({ focusId, onFiles }: { focusId?: string; onFiles: (files: Fi
       <aside className="inbox-list">
         <div className="panel-heading"><div><h1>待整理</h1><span>还剩 {items.length} 题</span></div></div>
         <CaptureDropZone onFiles={onFiles} compact />
-        {items.map((entry) => <button key={entry.id} className={entry.id === item.id ? 'active' : ''} onClick={() => setSelected(entry.id)}><span>{entry.images[0] ? <AnnotatedImage image={entry.images[0]} showMasks alt="题目缩略图" /> : <ImagePlus />}</span><div><strong>{entry.question}</strong><small>{new Date(entry.createdAt).toLocaleString('zh-CN')}</small></div></button>)}
+        {items.map((entry) => <button key={entry.id} className={entry.id === item.id ? 'active' : ''} onClick={() => setSelected(entry.id)}><span>{entry.images[0] ? <AnnotatedImage image={entry.images[0]} showMasks alt="题目缩略图" /> : <ImagePlus />}</span><div><strong>{entry.question || `${entry.questionType === 'choice' ? '选择题' : entry.questionType === 'fill-blank' ? '填空题' : '简答题'} · 等待识别`}</strong><small>{new Date(entry.createdAt).toLocaleString('zh-CN')}</small></div></button>)}
       </aside>
       <Organizer item={item} onNext={(id) => setSelected(items.find((entry) => entry.id !== id)?.id ?? '')} remaining={items.length} />
     </div>
@@ -272,10 +274,13 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
   const [ocrProgress, setOcrProgress] = useState(0)
   const [ocrMessage, setOcrMessage] = useState('')
   const imageInput = useRef<HTMLInputElement>(null)
+  const autoOcrItem = useRef<string | undefined>(undefined)
   useEffect(() => {
     setForm(item)
     setOcrDraft(item.images.map((image) => image.recognizedText).filter(Boolean).join('\n\n'))
-    setOcrStatus('idle'); setOcrProgress(0); setOcrMessage('')
+    setOcrStatus(item.recognition?.status === 'error' ? 'error' : item.recognition?.status === 'done' ? 'done' : 'idle')
+    setOcrProgress(item.recognition?.status === 'done' ? 100 : 0)
+    setOcrMessage(item.recognition?.message ?? '')
   }, [item.id])
   const exams = taxonomy.exams
   const subjects = exams.find((entry) => entry.name === form.exam)?.subjects ?? []
@@ -285,6 +290,7 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
     updateItem(item.id, { [key]: value })
   }
   const patchFields = (values: Partial<Mistake>) => { setForm((state) => ({ ...state, ...values })); updateItem(item.id, values) }
+  const patchReviewed = (values: Partial<Mistake>) => patchFields({ ...values, recognition: form.recognition ? { ...form.recognition, reviewed: true } : { status: 'idle', reviewed: true } })
   const saveNext = async () => {
     if (!form.exam || !form.subject || !form.chapter || !form.question.trim()) return
     try {
@@ -319,37 +325,53 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
     if (!form.images.length || ocrStatus === 'recognizing') return
     setOcrStatus('recognizing'); setOcrProgress(0); setOcrMessage('正在准备本地识别…')
     const nextImages = [...form.images]
+    await updateItemNow(item.id, { recognition: { status: 'processing', reviewed: false, message: '正在本机识别图片文字' } }).catch(() => undefined)
     try {
+      const confidences: number[] = []
       for (let index = 0; index < nextImages.length; index += 1) {
         setOcrMessage(`正在识别第 ${index + 1} / ${nextImages.length} 张`)
-        const text = await recognizeImage(nextImages[index].dataUrl, ({ progress }) => setOcrProgress(Math.round(((index + progress) / nextImages.length) * 100)))
-        nextImages[index] = { ...nextImages[index], recognizedText: text, recognizedAt: new Date().toISOString() }
+        const result = await recognizeTypedImage(nextImages[index].dataUrl, form.questionType, ({ progress }) => setOcrProgress(Math.round(((index + progress) / nextImages.length) * 100)))
+        confidences.push(result.confidence)
+        nextImages[index] = { ...nextImages[index], recognizedText: result.text, recognizedAt: new Date().toISOString() }
         setForm((state) => ({ ...state, images: [...nextImages] }))
         updateItem(item.id, { images: [...nextImages] })
       }
       const text = nextImages.map((image) => image.recognizedText?.trim()).filter(Boolean).join('\n\n')
+      const confidence = confidences.length ? confidences.reduce((total, value) => total + value, 0) / confidences.length : 0
+      const parsed = parseRecognizedQuestion(text, form.questionType, Math.round(confidence))
+      const recognizedPatch = applyParsedQuestion({ ...form, images: nextImages }, parsed)
+      const finalPatch = { ...recognizedPatch, images: nextImages }
+      await updateItemNow(item.id, finalPatch)
+      setForm((state) => ({ ...state, ...finalPatch }))
       setOcrDraft(text)
       setOcrProgress(100)
       setOcrStatus('done')
-      setOcrMessage(text ? '识别完成，结果已随图片保存' : '没有识别到清晰文字，可以换一张更清楚的图片')
+      setOcrMessage(text ? recognizedPatch.recognition?.message ?? '识别完成，请确认内容' : '没有识别到清晰文字，可以手动填写或换一张更清楚的图片')
     } catch {
       setOcrStatus('error')
       setOcrMessage('识别失败。请确认图片清晰，并重新尝试。')
+      await updateItemNow(item.id, { recognition: { status: 'error', reviewed: false, message: '识别失败，请重试或手动填写' } }).catch(() => undefined)
     }
   }
+  useEffect(() => {
+    if (item.images.length && item.recognition?.status === 'idle' && autoOcrItem.current !== item.id) {
+      autoOcrItem.current = item.id
+      void recognizeAllImages()
+    }
+  }, [item.id])
   return (
     <section className="organizer">
       <header><div><span>整理错题</span><strong>保存后自动进入下一题</strong></div><div className="button-row"><button className="button danger" onClick={() => { trash(item.id); onNext(item.id) }}><Trash2 size={16} />移到回收站</button><button className="button primary" disabled={!form.exam || !form.subject || !form.chapter || !form.question.trim()} onClick={() => void saveNext()}>保存并继续 <span>{remaining - 1 > 0 ? `· 还剩 ${remaining - 1}` : ''}</span></button></div></header>
       <div className="organizer-scroll">
-        <div className="organizer-images"><div className="section-label"><div><strong>题目图片</strong><span>{form.images.length ? `${form.images.length} 张，可排序、标注并识别文字` : '这条记录还没有图片'}</span></div><div className="button-row"><button className="button ghost" type="button" disabled={!form.images.length || ocrStatus === 'recognizing'} onClick={() => void recognizeAllImages()}><ScanText size={16} />{ocrStatus === 'recognizing' ? `识别中 ${ocrProgress}%` : '识别文字'}</button><button className="button ghost" type="button" onClick={() => imageInput.current?.click()}><ImagePlus size={16} />添加图片</button></div><input ref={imageInput} hidden type="file" accept={IMAGE_ACCEPT} multiple onChange={(event) => void addImages(event.target.files)} /></div>{form.images.length ? <ImageStrip images={form.images} onEdit={setEditingImage} onReorder={(images) => patch('images', images)} onDelete={(index) => patch('images', form.images.filter((_, position) => position !== index))} onReplace={replaceImage} /> : <div className="image-empty"><ImagePlus size={22} /><span>可从这里选择图片，也可以拖到窗口直接创建错题</span></div>}
+        <div className="organizer-images"><div className="section-label"><div><strong>题目图片</strong><span>{form.images.length ? `${form.images.length} 张，可排序、标注并在本机识别` : '这条记录还没有图片'}</span></div><div className="button-row"><button className="button ghost" type="button" disabled={!form.images.length || ocrStatus === 'recognizing'} onClick={() => void recognizeAllImages()}><ScanText size={16} />{ocrStatus === 'recognizing' ? `识别中 ${ocrProgress}%` : ocrStatus === 'idle' ? '识别文字' : '重新识别'}</button><button className="button ghost" type="button" onClick={() => imageInput.current?.click()}><ImagePlus size={16} />添加图片</button></div><input ref={imageInput} hidden type="file" accept={IMAGE_ACCEPT} multiple onChange={(event) => void addImages(event.target.files)} /></div>{form.images.length ? <ImageStrip images={form.images} onEdit={setEditingImage} onReorder={(images) => patch('images', images)} onDelete={(index) => patch('images', form.images.filter((_, position) => position !== index))} onReplace={replaceImage} /> : <div className="image-empty"><ImagePlus size={22} /><span>可从这里选择图片，也可以拖到窗口直接创建错题</span></div>}
         {(ocrStatus !== 'idle' || ocrDraft) && <div className={`ocr-panel ${ocrStatus}`}><div className="ocr-panel-heading"><div><ScanText size={17} /><div><strong>图片文字</strong><span>{ocrMessage || '识别结果保存在本地，不会上传图片'}</span></div></div>{ocrStatus === 'recognizing' && <div className="ocr-progress" aria-label={`识别进度 ${ocrProgress}%`}><i style={{ width: `${ocrProgress}%` }} /></div>}</div>{ocrDraft && <><textarea aria-label="识别出的图片文字" value={ocrDraft} onChange={(event) => setOcrDraft(event.target.value)} /><div className="button-row"><button type="button" className="button ghost" onClick={() => patch('question', `${form.question.trim()}${form.question.trim() ? '\n\n' : ''}${ocrDraft}`)}>追加到题干</button><button type="button" className="button primary" onClick={() => patch('question', ocrDraft)}>替换题干</button></div></>}</div>}</div>
         <div className="form-grid three taxonomy-grid">
           <TaxonomySelect label="考试" value={form.exam} options={exams.map((entry) => entry.name)} addLabel="新增考试" onChange={(exam) => patchFields({ exam, subject: '', chapter: '' })} onAdd={(name) => { const error = addExam(name); if (!error) patchFields({ exam: name, subject: '', chapter: '' }); return error }} />
           <TaxonomySelect label="科目" value={form.subject} options={subjects.map((entry) => entry.name)} addLabel="新增科目" disabled={!form.exam} onChange={(subject) => patchFields({ subject, chapter: '' })} onAdd={(name) => { const error = addSubject(form.exam, name); if (!error) patchFields({ subject: name, chapter: '' }); return error }} />
           <TaxonomySelect label="章节" value={form.chapter} options={chapters} addLabel="新增章节" disabled={!form.subject} onChange={(chapter) => patch('chapter', chapter)} onAdd={(name) => { const error = addChapter(form.exam, form.subject, name); if (!error) patch('chapter', name); return error }} />
         </div>
-        <Field label="题干"><textarea value={form.question} onChange={(e) => patch('question', e.target.value)} /></Field>
-        <Field label="正确答案 / 解题思路"><textarea value={form.answer} onChange={(e) => patch('answer', e.target.value)} placeholder="整理出下次复习时真正有用的思路" /></Field>
+        <Field label="题干"><textarea value={form.question} onChange={(e) => patchReviewed({ question: e.target.value })} placeholder="识别完成后会自动填入，请检查题号、公式和标点" /></Field>
+        <QuestionTypeFields item={form} onPatch={patchFields} />
         <div className="form-grid two">
           <Field label="错因"><textarea value={form.cause} onChange={(e) => patch('cause', e.target.value)} placeholder="概念不清、计算失误、审题遗漏……" /></Field>
           <Field label="个人笔记"><textarea value={form.note} onChange={(e) => patch('note', e.target.value)} placeholder="给下次复习的自己留一句提醒" /></Field>
@@ -400,7 +422,7 @@ function DetailDrawer({ item, onClose, onTrash, onRestore }: { item: Mistake; on
   const exams = taxonomy.exams
   const subjects = exams.find((entry) => entry.name === draft.exam)?.subjects ?? []
   const chapters = subjects.find((entry) => entry.name === draft.subject)?.chapters ?? []
-  return <div className="drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><aside className="drawer" role="dialog" aria-modal="true" aria-label="错题详情"><header><div><span>{draft.exam || '未分类'} / {draft.subject || '未选择科目'} / {draft.chapter || '未选择章节'}</span><strong>错题详情</strong></div><button className="icon-button" aria-label="关闭详情" onClick={onClose}><X size={18} /></button></header><div className="drawer-body"><ImageStrip images={draft.images} /><div className="form-grid three taxonomy-grid"><TaxonomySelect label="考试" value={draft.exam} options={exams.map((entry) => entry.name)} addLabel="新增考试" onChange={(exam) => setDraft({ ...draft, exam, subject: '', chapter: '' })} onAdd={(name) => { const error = addExam(name); if (!error) setDraft({ ...draft, exam: name, subject: '', chapter: '' }); return error }} /><TaxonomySelect label="科目" value={draft.subject} options={subjects.map((entry) => entry.name)} addLabel="新增科目" disabled={!draft.exam} onChange={(subject) => setDraft({ ...draft, subject, chapter: '' })} onAdd={(name) => { const error = addSubject(draft.exam, name); if (!error) setDraft({ ...draft, subject: name, chapter: '' }); return error }} /><TaxonomySelect label="章节" value={draft.chapter} options={chapters} addLabel="新增章节" disabled={!draft.subject} onChange={(chapter) => setDraft({ ...draft, chapter })} onAdd={(name) => { const error = addChapter(draft.exam, draft.subject, name); if (!error) setDraft({ ...draft, chapter: name }); return error }} /></div><Field label="题干"><textarea value={draft.question} onChange={(e) => setDraft({ ...draft, question: e.target.value })} /></Field><Field label="正确答案"><textarea value={draft.answer} onChange={(e) => setDraft({ ...draft, answer: e.target.value })} /></Field><Field label="错因"><textarea value={draft.cause} onChange={(e) => setDraft({ ...draft, cause: e.target.value })} /></Field><Field label="个人笔记"><textarea value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} /></Field><Field label="标签"><input value={draft.tags.join('，')} onChange={(e) => setDraft({ ...draft, tags: e.target.value.split(/[，,]/).map((value) => value.trim()).filter(Boolean) })} placeholder="用逗号分隔" /></Field></div><footer>{item.status === 'trashed' ? <button className="button ghost" onClick={onRestore}><ArchiveRestore size={16} />恢复错题</button> : <button className="button danger" onClick={onTrash}><Trash2 size={16} />移到回收站</button>}<button className="button primary" disabled={!draft.question.trim()} onClick={() => { update(item.id, draft); onClose() }}>保存修改</button></footer></aside></div>
+  return <div className="drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><aside className="drawer" role="dialog" aria-modal="true" aria-label="错题详情"><header><div><span>{draft.exam || '未分类'} / {draft.subject || '未选择科目'} / {draft.chapter || '未选择章节'}</span><strong>错题详情</strong></div><button className="icon-button" aria-label="关闭详情" onClick={onClose}><X size={18} /></button></header><div className="drawer-body"><ImageStrip images={draft.images} /><div className="form-grid three taxonomy-grid"><TaxonomySelect label="考试" value={draft.exam} options={exams.map((entry) => entry.name)} addLabel="新增考试" onChange={(exam) => setDraft({ ...draft, exam, subject: '', chapter: '' })} onAdd={(name) => { const error = addExam(name); if (!error) setDraft({ ...draft, exam: name, subject: '', chapter: '' }); return error }} /><TaxonomySelect label="科目" value={draft.subject} options={subjects.map((entry) => entry.name)} addLabel="新增科目" disabled={!draft.exam} onChange={(subject) => setDraft({ ...draft, subject, chapter: '' })} onAdd={(name) => { const error = addSubject(draft.exam, name); if (!error) setDraft({ ...draft, subject: name, chapter: '' }); return error }} /><TaxonomySelect label="章节" value={draft.chapter} options={chapters} addLabel="新增章节" disabled={!draft.subject} onChange={(chapter) => setDraft({ ...draft, chapter })} onAdd={(name) => { const error = addChapter(draft.exam, draft.subject, name); if (!error) setDraft({ ...draft, chapter: name }); return error }} /></div><Field label="题干"><textarea value={draft.question} onChange={(e) => setDraft({ ...draft, question: e.target.value })} /></Field><QuestionTypeFields item={draft} onPatch={(patch) => setDraft((current) => ({ ...current, ...patch }))} /><Field label="错因"><textarea value={draft.cause} onChange={(e) => setDraft({ ...draft, cause: e.target.value })} /></Field><Field label="个人笔记"><textarea value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} /></Field><Field label="标签"><input value={draft.tags.join('，')} onChange={(e) => setDraft({ ...draft, tags: e.target.value.split(/[，,]/).map((value) => value.trim()).filter(Boolean) })} placeholder="用逗号分隔" /></Field></div><footer>{item.status === 'trashed' ? <button className="button ghost" onClick={onRestore}><ArchiveRestore size={16} />恢复错题</button> : <button className="button danger" onClick={onTrash}><Trash2 size={16} />移到回收站</button>}<button className="button primary" disabled={!draft.question.trim()} onClick={() => { update(item.id, draft); onClose() }}>保存修改</button></footer></aside></div>
 }
 
 function HistoryPage() {
