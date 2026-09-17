@@ -34,13 +34,16 @@ export function defaultTypeContent(type: QuestionType): Pick<Mistake, 'choice' |
 export function normalizeMistakeType(item: Mistake): Mistake {
   const questionType: QuestionType = item.questionType ?? 'short-answer'
   const defaults = defaultTypeContent(questionType)
+  const recognition = item.recognition?.status === 'processing'
+    ? { status: 'idle' as const, reviewed: false, message: '上次识别被中断，可以重新识别' }
+    : item.recognition ?? { status: 'idle' as const, reviewed: true }
   return {
     ...item,
     questionType,
     choice: item.choice ?? defaults.choice,
     fillBlank: item.fillBlank ?? defaults.fillBlank,
     shortAnswer: item.shortAnswer ?? defaults.shortAnswer,
-    recognition: item.recognition ?? { status: 'idle', reviewed: true },
+    recognition,
   }
 }
 

@@ -18,6 +18,14 @@ describe('question type compatibility', () => {
     expect(migrated.shortAnswer).toEqual({ keyPoints: [] })
   })
 
+  it('turns an interrupted OCR operation into a retryable state', () => {
+    const migrated = normalizeMistakeType(base({
+      questionType: 'choice',
+      recognition: { status: 'processing', reviewed: false, message: '正在识别' },
+    }))
+    expect(migrated.recognition).toEqual({ status: 'idle', reviewed: false, message: '上次识别被中断，可以重新识别' })
+  })
+
   it('creates only the structure needed by the selected type', () => {
     expect(defaultTypeContent('choice')).toEqual({
       choice: { mode: 'single', options: [], correctOptionIds: [] },
