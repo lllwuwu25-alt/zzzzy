@@ -79,3 +79,7 @@ export function serializeResponse(item: Mistake, response: ReviewResponse) {
   if (item.questionType === 'fill-blank') return (response.blanks ?? []).map((value) => value.trim()).join('\n')
   return response.text ?? ''
 }
+
+export function canCompleteOrganizer(item: Mistake) {
+  return Boolean(item.question.trim())
+}

@@ -14,7 +14,7 @@ import { ratingIntervalHint } from './lib/fsrs'
 import { parseNotebookBackup } from './lib/notebook'
 import { recognizeTypedImage } from './lib/ocr'
 import { parseRecognizedQuestion } from './lib/ocr-parser'
-import { applyParsedQuestion } from './lib/question-types'
+import { applyParsedQuestion, canCompleteOrganizer } from './lib/question-types'
 import { selectDue, scheduleLabel, useNotebook } from './store'
 import type { ImageAsset, Mistake, Notebook, Page, Rating } from './types'
 
@@ -273,6 +273,7 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
   const [ocrStatus, setOcrStatus] = useState<'idle' | 'recognizing' | 'done' | 'error'>('idle')
   const [ocrProgress, setOcrProgress] = useState(0)
   const [ocrMessage, setOcrMessage] = useState('')
+  const [extrasOpen, setExtrasOpen] = useState(false)
   const imageInput = useRef<HTMLInputElement>(null)
   const autoOcrItem = useRef<string | undefined>(undefined)
   useEffect(() => {
@@ -281,6 +282,7 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
     setOcrStatus(item.recognition?.status === 'error' ? 'error' : item.recognition?.status === 'done' ? 'done' : 'idle')
     setOcrProgress(item.recognition?.status === 'done' ? 100 : 0)
     setOcrMessage(item.recognition?.message ?? '')
+    setExtrasOpen(Boolean(item.cause.trim() || item.note.trim() || item.tags.length))
   }, [item.id])
   const exams = taxonomy.exams
   const subjects = exams.find((entry) => entry.name === form.exam)?.subjects ?? []
@@ -292,7 +294,7 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
   const patchFields = (values: Partial<Mistake>) => { setForm((state) => ({ ...state, ...values })); updateItem(item.id, values) }
   const patchReviewed = (values: Partial<Mistake>) => patchFields({ ...values, recognition: form.recognition ? { ...form.recognition, reviewed: true } : { status: 'idle', reviewed: true } })
   const saveNext = async () => {
-    if (!form.exam || !form.subject || !form.chapter || !form.question.trim()) return
+    if (!canCompleteOrganizer(form)) return
     try {
       await save(item.id, form)
       onNext(item.id)
@@ -361,24 +363,28 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
   }, [item.id])
   return (
     <section className="organizer">
-      <header><div><span>整理错题</span><strong>保存后自动进入下一题</strong></div><div className="button-row"><button className="button danger" onClick={() => { trash(item.id); onNext(item.id) }}><Trash2 size={16} />移到回收站</button><button className="button primary" disabled={!form.exam || !form.subject || !form.chapter || !form.question.trim()} onClick={() => void saveNext()}>保存并继续 <span>{remaining - 1 > 0 ? `· 还剩 ${remaining - 1}` : ''}</span></button></div></header>
+      <header><div><span>整理错题</span><strong>{remaining > 1 ? `完成后继续下一题 · 还剩 ${remaining} 题` : '这是收集箱中的最后一题'}</strong></div></header>
       <div className="organizer-scroll">
-        <div className="organizer-images"><div className="section-label"><div><strong>题目图片</strong><span>{form.images.length ? `${form.images.length} 张，可排序、标注并在本机识别` : '这条记录还没有图片'}</span></div><div className="button-row"><button className="button ghost" type="button" disabled={!form.images.length || ocrStatus === 'recognizing'} onClick={() => void recognizeAllImages()}><ScanText size={16} />{ocrStatus === 'recognizing' ? `识别中 ${ocrProgress}%` : ocrStatus === 'idle' ? '识别文字' : '重新识别'}</button><button className="button ghost" type="button" onClick={() => imageInput.current?.click()}><ImagePlus size={16} />添加图片</button></div><input ref={imageInput} hidden type="file" accept={IMAGE_ACCEPT} multiple onChange={(event) => void addImages(event.target.files)} /></div>{form.images.length ? <ImageStrip images={form.images} onEdit={setEditingImage} onReorder={(images) => patch('images', images)} onDelete={(index) => patch('images', form.images.filter((_, position) => position !== index))} onReplace={replaceImage} /> : <div className="image-empty"><ImagePlus size={22} /><span>可从这里选择图片，也可以拖到窗口直接创建错题</span></div>}
-        {(ocrStatus !== 'idle' || ocrDraft) && <div className={`ocr-panel ${ocrStatus}`}><div className="ocr-panel-heading"><div><ScanText size={17} /><div><strong>图片文字</strong><span>{ocrMessage || '识别结果保存在本地，不会上传图片'}</span></div></div>{ocrStatus === 'recognizing' && <div className="ocr-progress" aria-label={`识别进度 ${ocrProgress}%`}><i style={{ width: `${ocrProgress}%` }} /></div>}</div>{ocrDraft && <><textarea aria-label="识别出的图片文字" value={ocrDraft} onChange={(event) => setOcrDraft(event.target.value)} /><div className="button-row"><button type="button" className="button ghost" onClick={() => patchReviewed({ question: `${form.question.trim()}${form.question.trim() ? '\n\n' : ''}${ocrDraft}` })}>追加到题干</button><button type="button" className="button primary" onClick={() => patchReviewed({ question: ocrDraft })}>替换题干</button></div></>}</div>}</div>
-        <div className="form-grid three taxonomy-grid">
-          <TaxonomySelect label="考试" value={form.exam} options={exams.map((entry) => entry.name)} addLabel="新增考试" onChange={(exam) => patchFields({ exam, subject: '', chapter: '' })} onAdd={(name) => { const error = addExam(name); if (!error) patchFields({ exam: name, subject: '', chapter: '' }); return error }} />
-          <TaxonomySelect label="科目" value={form.subject} options={subjects.map((entry) => entry.name)} addLabel="新增科目" disabled={!form.exam} onChange={(subject) => patchFields({ subject, chapter: '' })} onAdd={(name) => { const error = addSubject(form.exam, name); if (!error) patchFields({ subject: name, chapter: '' }); return error }} />
-          <TaxonomySelect label="章节" value={form.chapter} options={chapters} addLabel="新增章节" disabled={!form.subject} onChange={(chapter) => patch('chapter', chapter)} onAdd={(name) => { const error = addChapter(form.exam, form.subject, name); if (!error) patch('chapter', name); return error }} />
-        </div>
-        <Field label="题干"><textarea value={form.question} onChange={(e) => patchReviewed({ question: e.target.value })} placeholder="识别完成后会自动填入，请检查题号、公式和标点" /></Field>
-        <QuestionTypeFields item={form} onPatch={patchFields} />
-        <div className="form-grid two">
-          <Field label="错因"><textarea value={form.cause} onChange={(e) => patch('cause', e.target.value)} placeholder="概念不清、计算失误、审题遗漏……" /></Field>
-          <Field label="个人笔记"><textarea value={form.note} onChange={(e) => patch('note', e.target.value)} placeholder="给下次复习的自己留一句提醒" /></Field>
-        </div>
-        <Field label="标签"><input value={form.tags.join('，')} onChange={(e) => patch('tags', e.target.value.split(/[，,]/).map((value) => value.trim()).filter(Boolean))} placeholder="用逗号分隔，例如：泰勒展开，易错" /></Field>
-        <p className="autosave-note"><ShieldCheck size={14} />编辑内容会自动保存到收集箱</p>
+        <section className="organizer-section organizer-images"><div className="section-label"><div><strong>题目图片</strong><span>{form.images.length ? `${form.images.length} 张 · 可标注、排序或替换` : '可选，不上传云端'}</span></div><div className="button-row"><button className="button ghost compact" type="button" disabled={!form.images.length || ocrStatus === 'recognizing'} onClick={() => void recognizeAllImages()}><ScanText size={15} />{ocrStatus === 'recognizing' ? `${ocrProgress}%` : ocrStatus === 'idle' ? '识别文字' : '重新识别'}</button><button className="button ghost compact" type="button" onClick={() => imageInput.current?.click()}><ImagePlus size={15} />添加图片</button></div><input ref={imageInput} hidden type="file" accept={IMAGE_ACCEPT} multiple onChange={(event) => void addImages(event.target.files)} /></div>{form.images.length ? <ImageStrip images={form.images} onEdit={setEditingImage} onReorder={(images) => patch('images', images)} onDelete={(index) => patch('images', form.images.filter((_, position) => position !== index))} onReplace={replaceImage} /> : <div className="image-empty"><ImagePlus size={22} /><span>选择图片，或直接拖到窗口</span></div>}
+        {(ocrStatus !== 'idle' || ocrDraft) && <div className={`ocr-panel ${ocrStatus}`}><div className="ocr-panel-heading"><div><ScanText size={16} /><div><strong>{ocrStatus === 'recognizing' ? `正在识别 ${ocrProgress}%` : ocrStatus === 'error' ? '识别未完成' : '文字已识别'}</strong><span>{ocrMessage || '识别在本机完成'}</span></div></div>{ocrStatus === 'recognizing' && <div className="ocr-progress" aria-label={`识别进度 ${ocrProgress}%`}><i style={{ width: `${ocrProgress}%` }} /></div>}</div>{ocrDraft && <details className="ocr-details"><summary>查看识别原文</summary><textarea aria-label="识别出的图片文字" value={ocrDraft} onChange={(event) => setOcrDraft(event.target.value)} /><div className="button-row"><button type="button" className="button ghost compact" onClick={() => patchReviewed({ question: `${form.question.trim()}${form.question.trim() ? '\n\n' : ''}${ocrDraft}` })}>追加到题干</button><button type="button" className="button primary compact" onClick={() => patchReviewed({ question: ocrDraft })}>替换题干</button></div></details>}</div>}</section>
+        <section className="organizer-section essential-fields">
+          <Field label="题干"><textarea value={form.question} onChange={(e) => patchReviewed({ question: e.target.value })} placeholder="检查识别结果，补全题目文字" /></Field>
+          <QuestionTypeFields item={form} onPatch={patchFields} />
+        </section>
+        <section className="organizer-section classification-section">
+          <div className="compact-section-heading"><div><strong>分类</strong><span>{[form.exam, form.subject, form.chapter].filter(Boolean).join(' / ') || '可稍后补充'}</span></div></div>
+          <div className="form-grid three taxonomy-grid">
+            <TaxonomySelect label="考试" value={form.exam} options={exams.map((entry) => entry.name)} addLabel="新增考试" onChange={(exam) => patchFields({ exam, subject: '', chapter: '' })} onAdd={(name) => { const error = addExam(name); if (!error) patchFields({ exam: name, subject: '', chapter: '' }); return error }} />
+            <TaxonomySelect label="科目" value={form.subject} options={subjects.map((entry) => entry.name)} addLabel="新增科目" disabled={!form.exam} onChange={(subject) => patchFields({ subject, chapter: '' })} onAdd={(name) => { const error = addSubject(form.exam, name); if (!error) patchFields({ subject: name, chapter: '' }); return error }} />
+            <TaxonomySelect label="章节" value={form.chapter} options={chapters} addLabel="新增章节" disabled={!form.subject} onChange={(chapter) => patch('chapter', chapter)} onAdd={(name) => { const error = addChapter(form.exam, form.subject, name); if (!error) patch('chapter', name); return error }} />
+          </div>
+        </section>
+        <section className={`organizer-section extras-section ${extrasOpen ? 'open' : ''}`}>
+          <button type="button" className="extras-toggle" aria-expanded={extrasOpen} onClick={() => setExtrasOpen((open) => !open)}><span><strong>补充信息</strong><small>{form.cause || form.note || form.tags.length ? '已填写部分内容' : '错因、笔记和标签（可选）'}</small></span><ChevronDown size={17} /></button>
+          {extrasOpen && <div className="extras-content"><div className="form-grid two"><Field label="错因"><textarea value={form.cause} onChange={(e) => patch('cause', e.target.value)} placeholder="例如：概念不清、计算失误" /></Field><Field label="个人笔记"><textarea value={form.note} onChange={(e) => patch('note', e.target.value)} placeholder="给下次复习留一句提醒" /></Field></div><Field label="标签"><input value={form.tags.join('，')} onChange={(e) => patch('tags', e.target.value.split(/[，,]/).map((value) => value.trim()).filter(Boolean))} placeholder="用逗号分隔，例如：易错，二刷" /></Field></div>}
+        </section>
       </div>
+      <footer className="organizer-footer"><div className="organizer-save-note"><ShieldCheck size={15} /><span>修改已自动保存在本机</span></div><div className="button-row"><button className="button danger quiet-danger" onClick={() => { trash(item.id); onNext(item.id) }}><Trash2 size={15} />移到回收站</button><button className="button primary" disabled={!canCompleteOrganizer(form)} onClick={() => void saveNext()}>完成并整理下一题{remaining - 1 > 0 ? ` · ${remaining - 1}` : ''}</button></div></footer>
       {editingImage && <ImageEditor image={editingImage} onClose={() => setEditingImage(undefined)} onChange={async (image) => { const images = form.images.map((entry) => entry.id === image.id ? image : entry); await updateItemNow(item.id, { images }); setForm((state) => ({ ...state, images })); setEditingImage(image) }} />}
     </section>
   )

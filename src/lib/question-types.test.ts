@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Mistake } from '../types'
-import { answerTextFor, applyParsedQuestion, defaultTypeContent, normalizeMistakeType, serializeResponse } from './question-types'
+import { answerTextFor, applyParsedQuestion, canCompleteOrganizer, defaultTypeContent, normalizeMistakeType, serializeResponse } from './question-types'
 
 const base = (patch: Partial<Mistake> = {}) => ({
   id: 'item-1', status: 'inbox', exam: '', subject: '', chapter: '',
@@ -57,5 +57,10 @@ describe('question type compatibility', () => {
     expect(serializeResponse(base({ questionType: 'choice' }), { selectedOptionIds: ['A', 'C'] })).toBe('A、C')
     expect(serializeResponse(base({ questionType: 'fill-blank' }), { blanks: ['甲', '乙'] })).toBe('甲\n乙')
     expect(serializeResponse(base({ questionType: 'short-answer' }), { text: '我的思路' })).toBe('我的思路')
+  })
+
+  it('allows organizing a question before classification and answer are filled', () => {
+    expect(canCompleteOrganizer(base({ exam: '', subject: '', chapter: '', answer: '' }))).toBe(true)
+    expect(canCompleteOrganizer(base({ question: '   ', exam: '考研', subject: '数学', chapter: '极限' }))).toBe(false)
   })
 })
