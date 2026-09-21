@@ -9,8 +9,6 @@
 | Mac，Apple M1 / M2 / M3 / M4 芯片 | 文件名含 `aarch64` 的 `.dmg` | `x64.dmg`、`.tar.gz` |
 | Mac，Intel 芯片 | 文件名含 `x64` 或 `x86_64` 的 `.dmg` | `aarch64.dmg`、`.tar.gz` |
 | Windows 10 / 11（绝大多数电脑） | 文件名含 `x64-setup` 的 `.exe` | `.sig`、源码压缩包 |
-| Ubuntu / Debian Linux | 文件名含 `amd64` 的 `.deb` | `.sig` |
-| 其他常见 Linux | 文件名含 `amd64` 的 `.AppImage` | `.sig` |
 
 ## Mac：怎么查看芯片类型
 
@@ -33,18 +31,10 @@
 
 下载文件名含 `x64-setup` 的 `.exe`，双击后按照安装向导操作。若 Windows SmartScreen 提示风险，请先确认文件来自本仓库的 Releases 页面，再选择“更多信息 → 仍要运行”。
 
-## Linux
-
-- Ubuntu、Debian 及其衍生发行版：优先下载 `.deb`。
-- 不确定发行版时：可以下载 `.AppImage`，为文件添加执行权限后运行。
-
 ## Assets 里其他文件是什么
 
 - `.dmg`：Mac 安装包，Mac 用户下载这个。
 - `.exe`：Windows 安装程序，Windows 用户下载这个。
-- `.deb`：Ubuntu / Debian 安装包。
-- `.AppImage`：可直接运行的 Linux 应用文件。
 - `.app.tar.gz`：应用自动更新使用的压缩包，普通用户不需要下载。
 - `.sig`：安装包签名校验文件，普通用户不需要下载。
 - `Source code.zip` / `Source code.tar.gz`：源代码，开发人员使用，不是安装包。
-

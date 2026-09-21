@@ -20,20 +20,12 @@ jobs:
             args: --target x86_64-apple-darwin
           - platform: windows-latest
             args: --config src-tauri/tauri.windows.conf.json
-          - platform: ubuntu-22.04
-            args: ""
 
     runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
-
-      - name: Install Linux desktop dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends --no-install-suggests curl libwebkit2gtk-4.1-dev build-essential libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -75,9 +67,6 @@ jobs:
             | Mac，Apple M1 / M2 / M3 / M4 芯片 | `aarch64` | `.dmg` |
             | Mac，Intel 芯片 | `x64` 或 `x86_64` | `.dmg` |
             | Windows 10 / 11 | `x64-setup` | `.exe` |
-            | Ubuntu / Debian Linux | `amd64` | `.deb` |
-            | 其他常见 Linux | `amd64` | `.AppImage` |
-
             **只想安装应用时，不要下载 `.tar.gz`、`.sig` 或源码压缩包。** 这些是自动更新、校验或开发用途的文件，不是普通安装包。
 
             不清楚 Mac 的芯片类型？点击屏幕左上角苹果菜单 → “关于本机”：看到“芯片 Apple M…”就下载 `aarch64.dmg`；看到“处理器 Intel…”就下载 `x64.dmg`。
