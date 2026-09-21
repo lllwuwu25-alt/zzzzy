@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlignLeft, Check, FormInput, ListChecks, X } from 'lucide-react'
+import { ActionButton } from './ActionButton'
 import { assignGroupType, groupsFor, importReady, type ImportGroup, type ImportMode } from '../lib/import-flow'
 import type { ImageAsset, QuestionType } from '../types'
 
@@ -117,7 +118,7 @@ export function CaptureImportDialog({
           <div className="button-row">
             {stage === 'typing' && images.length > 1 && <button className="button ghost" type="button" onClick={() => setStage('grouping')} disabled={saving}>上一步</button>}
             <button className="button ghost" type="button" onClick={onCancel} disabled={saving}>取消</button>
-            {stage === 'typing' && <button className="button primary" type="button" onClick={() => void confirm()} disabled={!ready || saving}>{saving ? '正在保存…' : `创建 ${groups.length} 道错题`}</button>}
+            {stage === 'typing' && <ActionButton className="primary" type="button" onClick={() => void confirm()} disabled={!ready} busy={saving} busyLabel="正在保存">创建 {groups.length} 道错题</ActionButton>}
           </div>
           {error && <p className="form-error" role="alert">{error}</p>}
         </footer>

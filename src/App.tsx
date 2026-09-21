@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArchiveRestore, BookOpenCheck, CalendarRange, ChevronDown, ChevronRight, Clock3, FileArchive, FolderCog, History,
+  ArchiveRestore, BookOpenCheck, CalendarRange, Check, ChevronDown, ChevronRight, Clock3, FileArchive, FolderCog, History,
   FolderOpen, ImagePlus, Inbox, Layers3, Menu, NotebookTabs, PencilLine, Plus, RotateCcw,
   ScanText, Search, Settings, ShieldCheck, Trash2, Upload, X,
 } from 'lucide-react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { AnnotatedImage } from './components/AnnotatedImage'
+import { ActionButton } from './components/ActionButton'
 import { CaptureImportDialog, type TypedImportGroup } from './components/CaptureImportDialog'
 import { ImageEditor } from './components/ImageEditor'
 import { QuestionTypeFields } from './components/QuestionTypeFields'
@@ -242,10 +243,20 @@ function InboxPage({ focusId, onFiles }: { focusId?: string; onFiles: (files: Fi
   const allItems = useNotebook((state) => state.items)
   const items = useMemo(() => allItems.filter((item) => item.status === 'inbox'), [allItems])
   const [selected, setSelected] = useState(items[0]?.id)
+  const [successNotice, setSuccessNotice] = useState('')
+  const successTimer = useRef<number | undefined>(undefined)
   const item = items.find((entry) => entry.id === selected) ?? items[0]
   useEffect(() => { if (!items.some((entry) => entry.id === selected)) setSelected(items[0]?.id) }, [items, selected])
   useEffect(() => { if (focusId && items.some((entry) => entry.id === focusId)) setSelected(focusId) }, [focusId, items])
-  if (!item) return <div className="empty-capture"><Empty title="收集箱已经整理干净" description="把题目截图拖到下方，系统会先替你稳稳保存下来。" icon={Inbox} compact /><CaptureDropZone onFiles={onFiles} /></div>
+  useEffect(() => () => window.clearTimeout(successTimer.current), [])
+  const completeAndContinue = (id: string) => {
+    setSelected(items.find((entry) => entry.id !== id)?.id ?? '')
+    setSuccessNotice('已完成整理')
+    window.clearTimeout(successTimer.current)
+    successTimer.current = window.setTimeout(() => setSuccessNotice(''), 1800)
+  }
+  const notice = successNotice && <div className="success-toast" role="status"><span><Check size={15} /></span>{successNotice}</div>
+  if (!item) return <><div className="empty-capture"><Empty title="收集箱已经整理干净" description="把题目截图拖到下方，系统会先替你稳稳保存下来。" icon={Inbox} compact /><CaptureDropZone onFiles={onFiles} /></div>{notice}</>
   return (
     <div className="inbox-layout">
       <aside className="inbox-list">
@@ -253,7 +264,8 @@ function InboxPage({ focusId, onFiles }: { focusId?: string; onFiles: (files: Fi
         <CaptureDropZone onFiles={onFiles} compact />
         {items.map((entry) => <button key={entry.id} className={entry.id === item.id ? 'active' : ''} onClick={() => setSelected(entry.id)}><span>{entry.images[0] ? <AnnotatedImage image={entry.images[0]} showMasks alt="题目缩略图" /> : <ImagePlus />}</span><div><strong>{entry.question || `${entry.questionType === 'choice' ? '选择题' : entry.questionType === 'fill-blank' ? '填空题' : '简答题'} · 等待识别`}</strong><small>{new Date(entry.createdAt).toLocaleString('zh-CN')}</small></div></button>)}
       </aside>
-      <Organizer item={item} onNext={(id) => setSelected(items.find((entry) => entry.id !== id)?.id ?? '')} remaining={items.length} />
+      <Organizer item={item} onNext={completeAndContinue} remaining={items.length} />
+      {notice}
     </div>
   )
 }
@@ -274,6 +286,7 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
   const [ocrProgress, setOcrProgress] = useState(0)
   const [ocrMessage, setOcrMessage] = useState('')
   const [extrasOpen, setExtrasOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
   const imageInput = useRef<HTMLInputElement>(null)
   const autoOcrItem = useRef<string | undefined>(undefined)
   useEffect(() => {
@@ -283,6 +296,7 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
     setOcrProgress(item.recognition?.status === 'done' ? 100 : 0)
     setOcrMessage(item.recognition?.message ?? '')
     setExtrasOpen(Boolean(item.cause.trim() || item.note.trim() || item.tags.length))
+    setSaving(false)
   }, [item.id])
   const exams = taxonomy.exams
   const subjects = exams.find((entry) => entry.name === form.exam)?.subjects ?? []
@@ -294,13 +308,16 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
   const patchFields = (values: Partial<Mistake>) => { setForm((state) => ({ ...state, ...values })); updateItem(item.id, values) }
   const patchReviewed = (values: Partial<Mistake>) => patchFields({ ...values, recognition: form.recognition ? { ...form.recognition, reviewed: true } : { status: 'idle', reviewed: true } })
   const saveNext = async () => {
-    if (!canCompleteOrganizer(form)) return
+    if (!canCompleteOrganizer(form) || saving) return
+    setSaving(true)
     try {
       await save(item.id, form)
       onNext(item.id)
     } catch {
       setOcrStatus('error')
       setOcrMessage('保存失败，请检查磁盘空间后重试。当前内容仍保留在页面中。')
+    } finally {
+      setSaving(false)
     }
   }
   const addImages = async (files?: FileList | null) => {
@@ -384,7 +401,7 @@ function Organizer({ item, onNext, remaining }: { item: Mistake; onNext: (id: st
           {extrasOpen && <div className="extras-content"><div className="form-grid two"><Field label="错因"><textarea value={form.cause} onChange={(e) => patch('cause', e.target.value)} placeholder="例如：概念不清、计算失误" /></Field><Field label="个人笔记"><textarea value={form.note} onChange={(e) => patch('note', e.target.value)} placeholder="给下次复习留一句提醒" /></Field></div><Field label="标签"><input value={form.tags.join('，')} onChange={(e) => patch('tags', e.target.value.split(/[，,]/).map((value) => value.trim()).filter(Boolean))} placeholder="用逗号分隔，例如：易错，二刷" /></Field></div>}
         </section>
       </div>
-      <footer className="organizer-footer"><div className="organizer-save-note"><ShieldCheck size={15} /><span>修改已自动保存在本机</span></div><div className="button-row"><button className="button danger quiet-danger" onClick={() => { trash(item.id); onNext(item.id) }}><Trash2 size={15} />移到回收站</button><button className="button primary" disabled={!canCompleteOrganizer(form)} onClick={() => void saveNext()}>完成并整理下一题{remaining - 1 > 0 ? ` · ${remaining - 1}` : ''}</button></div></footer>
+      <footer className="organizer-footer"><div className="organizer-save-note"><ShieldCheck size={15} /><span>修改已自动保存在本机</span></div><div className="button-row"><button className="button danger quiet-danger" onClick={() => { trash(item.id); onNext(item.id) }}><Trash2 size={15} />移到回收站</button><ActionButton className="primary" busy={saving} busyLabel="正在完成" disabled={!canCompleteOrganizer(form)} onClick={() => void saveNext()}>完成并整理下一题{remaining - 1 > 0 ? ` · ${remaining - 1}` : ''}</ActionButton></div></footer>
       {editingImage && <ImageEditor image={editingImage} onClose={() => setEditingImage(undefined)} onChange={async (image) => { const images = form.images.map((entry) => entry.id === image.id ? image : entry); await updateItemNow(item.id, { images }); setForm((state) => ({ ...state, images })); setEditingImage(image) }} />}
     </section>
   )
