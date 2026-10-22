@@ -28,6 +28,9 @@ export type RecognitionState = {
   confidence?: number
   reviewed: boolean
   message?: string
+  provider?: 'local' | 'deepseek'
+  model?: string
+  recognizedAt?: string
 }
 
 export type Annotation = {
