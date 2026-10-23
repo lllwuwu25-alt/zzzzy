@@ -6,6 +6,7 @@ import { StorageRecovery } from './components/StorageRecovery'
 import { applyTheme, getThemePreference } from './lib/themes'
 import './styles.css'
 import './workbench.css'
+import './themes.css'
 
 applyTheme(getThemePreference())
 const root = createRoot(document.getElementById('root')!)
