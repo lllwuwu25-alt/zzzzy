@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, BookOpenCheck, Check, ChevronRight, Layers3, RotateCcw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpenCheck, Check, ChevronRight, Layers3, RotateCcw, X } from 'lucide-react'
 import { selectDue, useNotebook } from '../store'
 import type { Mistake, Rating } from '../types'
 import { ratingIntervalHint } from '../lib/fsrs'
@@ -20,6 +20,8 @@ export function ReviewDeck({onGoInbox}:{onGoInbox:()=>void}) {
   const [lastSessionReview, setLastSessionReview] = useState<string>()
   const startedAt = useRef(Date.now()), lock = useRef(false), motionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const focus = useRef<HTMLElement>(null)
+  const modal = useRef<HTMLDialogElement>(null)
+  const homeTitle = useRef<HTMLHeadingElement>(null)
   const due = selectDue(store), subjects = [...new Set(due.map((i)=>i.subject).filter(Boolean))]
   const available = due.filter((i)=>!subject || i.subject===subject)
   const pending = deck?.pending.flatMap((id)=>{const item=store.items.find((i)=>i.id===id&&i.status==='ready');return item?[item]:[]}) ?? []
@@ -27,6 +29,13 @@ export function ReviewDeck({onGoInbox}:{onGoInbox:()=>void}) {
   const canUndo=!!lastSessionReview && store.lastReview?.id===lastSessionReview
   useEffect(()=>()=>clearTimeout(motionTimer.current),[])
   useEffect(()=>{focus.current?.focus({preventScroll:true})},[item?.id,deck===null])
+  useEffect(()=>{
+    if(!deck||!modal.current)return
+    const previous=document.activeElement as HTMLElement, overflow=document.body.style.overflow
+    modal.current.showModal();document.body.style.overflow='hidden';focus.current?.focus({preventScroll:true})
+    return ()=>{document.body.style.overflow=overflow;if(previous?.isConnected&&!previous.matches(':disabled'))previous.focus({preventScroll:true});else homeTitle.current?.focus({preventScroll:true})}
+  },[deck!==null])
+  const close=()=>{if(lock.current)return;setDeck(null);setOutgoing(undefined);setError('')}
   const start=()=>{setDeck({pending:available.map((i)=>i.id),completed:[]});setError('');setRevealed(false);setAnswer('');setLastSessionReview(undefined);startedAt.current=Date.now()}
   const reset=()=>{setRevealed(false);setAnswer('');startedAt.current=Date.now()}
   const move=(current:Mistake,skipped=false)=>{setOutgoing({item:current,skipped,key:Date.now()});clearTimeout(motionTimer.current);motionTimer.current=setTimeout(()=>setOutgoing(undefined),460)}
@@ -49,17 +58,17 @@ export function ReviewDeck({onGoInbox}:{onGoInbox:()=>void}) {
     finally{lock.current=false;setBusy(false)}
   }
 
-  if(!deck)return <section className="review-home" aria-labelledby="review-home-title">
-    <div className="review-home-heading"><span className="review-day">{new Date().toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'})}</span><h1 id="review-home-title">今天，让记忆再清晰一点。</h1><p>选择一组题目，留一段专注的时间。</p></div>
+  const home = <section className="review-home" aria-labelledby="review-home-title">
+    <div className="review-home-heading"><span className="review-day">{new Date().toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'})}</span><h1 ref={homeTitle} tabIndex={-1} id="review-home-title">今天，让记忆再清晰一点。</h1><p>选择一组题目，留一段专注的时间。</p></div>
     <section className="review-entry" aria-label="选择今日复习"><div className="mini-card-stack" aria-hidden="true"><i/><i/><span><BookOpenCheck size={31}/></span></div><div className="review-entry-copy"><span className="review-entry-label">今日复习</span><h2>{available.length ? `${available.length} 道题，等你温习` : '今天暂时没有到期题目'}</h2><p>{available.length?'一张一张完成，把学过的知识稳稳留下。':'可以先整理收集箱，准备下一次复习。'}</p>{subjects.length>0&&<label className="review-subject">复习范围<select aria-label="选择复习科目" value={subject} onChange={(e)=>setSubject(e.target.value)}><option value="">全部科目</option>{subjects.map((s)=><option key={s}>{s}</option>)}</select></label>}</div><button className="button primary review-start" disabled={!available.length} onClick={start}>开始复习<ArrowRight size={16}/></button></section>
     <button className="review-inbox-link" onClick={onGoInbox}>去整理收集箱<ChevronRight size={14}/></button>
   </section>
 
-  if(!item)return <section className="deck-finished" aria-labelledby="deck-finished-title">
+  const content = !item ? <section className="deck-finished" aria-labelledby="deck-finished-title">
     <div className="completion-emblem" aria-hidden="true"><i/><i/><span><Check size={34}/></span></div><span className="review-day">本轮已完成 {completed} 道题</span><h1 ref={focus as React.RefObject<HTMLHeadingElement>} tabIndex={-1} id="deck-finished-title">今日复习已结束</h1><p>卡片已归位，新的复习安排也已保存。<br/>休息一下，让记忆慢慢沉淀。</p>{error&&<p role="alert" className="field-error">{error}</p>}<div className="button-row"><button className="button primary" onClick={()=>setDeck(null)}>返回今日复习</button>{canUndo&&<button className="button ghost" disabled={busy} onClick={()=>void undo()}><RotateCcw size={15}/>撤销上一条评分</button>}<button className="button ghost" onClick={onGoInbox}>整理收集箱</button></div>
   </section>
 
-  return <section className="deck-session" aria-label="专注复习卡片">
+  : <section className="deck-session" aria-label="专注复习卡片">
     <header className="deck-session-header"><button className="button ghost compact" disabled={busy} onClick={()=>{setDeck(null);setOutgoing(undefined)}}><ArrowLeft size={14}/>返回选择</button><div className="deck-counter"><Layers3 size={15}/><span>已完成 <strong>{completed}</strong> / {total}</span></div><button className="button ghost compact" disabled={!canUndo||busy} onClick={()=>void undo()} aria-label="撤销上一条评分"><RotateCcw size={14}/>撤销</button></header>
     <div className="deck-progress" role="progressbar" aria-label="本轮复习进度" aria-valuenow={completed} aria-valuemin={0} aria-valuemax={total}><span style={{transform:`scaleX(${total?completed/total:0})`}}/></div>
     <div className="deck-stage"><div className="deck-back deck-back-two" aria-hidden="true"/><div className="deck-back deck-back-one" aria-hidden="true"/>
@@ -71,4 +80,5 @@ export function ReviewDeck({onGoInbox}:{onGoInbox:()=>void}) {
       {outgoing&&<div key={outgoing.key} className="deck-outgoing" aria-hidden="true"><BookOpenCheck size={20}/><strong>{outgoing.item.question||'图片题目'}</strong><span>{outgoing.skipped?'稍后再看':'已完成 · 归入卡片后方'}</span></div>}
     </div><p className="deck-footnote">{completed ? `${completed} 张卡片已归位 · `:''}把注意力留给眼前这一题</p>
   </section>
+  return <>{home}{deck&&<dialog ref={modal} className="review-modal" aria-label="专注复习" onCancel={(event)=>{event.preventDefault();close()}} onClick={(event)=>{if(event.target!==event.currentTarget)return;const rect=event.currentTarget.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)close()}}><button className="icon-button deck-modal-close" aria-label="关闭复习卡片" disabled={busy} onClick={close}><X size={20}/></button>{content}</dialog>}</>
 }
