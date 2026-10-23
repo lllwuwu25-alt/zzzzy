@@ -32,10 +32,10 @@
 
 **Interfaces:** ThemeId; themes registry with names, preview colors and semantic tokens; getThemePreference(): ThemeId; applyTheme(id: ThemeId): void; setThemePreference(id: ThemeId): boolean.
 
-- [ ] Add failing tests for exact five IDs/default, invalid and blocked storage, immediate document application and contrast pairs.
-- [ ] Run tests and observe missing implementation failure.
-- [ ] Implement registry/persistence with guarded browser access; set root data-theme, color-scheme, semantic properties, and meta theme-color. Apply before hydration.
-- [ ] Run entire Vitest suite; commit theme model and tests.
+- [x] Add failing tests for exact five IDs/default, invalid and blocked storage, immediate document application and contrast pairs.
+- [x] Run tests and observe missing implementation failure.
+- [x] Implement registry/persistence with guarded browser access; set root data-theme, color-scheme, semantic properties, and meta theme-color. Apply before hydration.
+- [x] Run entire Vitest suite; commit theme model and tests.
 
 ### Task 2: Full themed UI and verification
 
@@ -43,9 +43,9 @@
 
 **Interfaces:** ThemeSettings consumes Task 1 APIs and renders a radio group with five mini previews, current selection and persistence feedback; all existing components use registry semantic CSS properties.
 
-- [ ] Add failing render test expecting five labeled radio choices and default selected.
-- [ ] Implement preview selector and local status; integrate beside motion settings.
-- [ ] Mechanically convert fixed UI colors to semantic variables, preserving annotation canvas/image pixels and dark backdrop controls. Add restrained paint accents only outside task content.
-- [ ] Create isolated browser acceptance for all skins, reload persistence, keyboard selection, blocked writes, all main pages, import dialog, editor, table/formula review, 390px and reduced motion. Check computed contrast and preserve image data.
-- [ ] Run npm test, npm run build, git diff --check and browser regressions; inspect screenshots.
-- [ ] One independent whole-change review; fix important findings with regression tests; commit and hand off preview without packaging.
+- [x] Add failing render test expecting five labeled radio choices and default selected.
+- [x] Implement preview selector and local status; integrate beside motion settings.
+- [x] Mechanically convert fixed UI colors to semantic variables, preserving annotation canvas/image pixels and dark backdrop controls. Add restrained paint accents only outside task content.
+- [x] Create isolated browser acceptance for all skins, reload persistence, keyboard selection, blocked writes, all main pages, import dialog, editor, table/formula review, 390px and reduced motion. Check computed contrast and preserve image data.
+- [x] Run npm test, npm run build, git diff --check and browser regressions; inspect screenshots.
+- [x] One independent whole-change review; fix important findings with regression tests; commit and hand off preview without packaging.
