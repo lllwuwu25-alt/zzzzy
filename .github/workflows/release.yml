@@ -38,6 +38,11 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      - name: Require offline license public key
+        env:
+          NOTEBOOK_LICENSE_PUBLIC_KEY: ${{ vars.NOTEBOOK_LICENSE_PUBLIC_KEY }}
+        run: node scripts/check-license-config.mjs --github-env
+
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
@@ -51,6 +56,12 @@ jobs:
 
       - name: Generate platform icons
         run: npm run tauri icon src-tauri/icons/icon.png
+
+      - name: Verify native license checks
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
+
+      - name: Verify issuer interoperability and fail-closed build
+        run: node scripts/qa-license-native.mjs
 
       - name: Build and upload installers
         uses: tauri-apps/tauri-action@v1
@@ -68,6 +79,8 @@ jobs:
             | Mac，Intel 芯片 | `x64` 或 `x86_64` | `.dmg` |
             | Windows 10 / 11 | `x64-setup` | `.exe` |
             **只想安装应用时，不要下载 `.tar.gz`、`.sig` 或源码压缩包。** 这些是自动更新、校验或开发用途的文件，不是普通安装包。
+
+            本版需导入卖家签发的设备授权文件，激活后永久离线使用。每笔购买最多签发两台设备；未激活仍可查看与导出已有资料。不要向他人发送保险库或密码。
 
             不清楚 Mac 的芯片类型？点击屏幕左上角苹果菜单 → “关于本机”：看到“芯片 Apple M…”就下载 `aarch64.dmg`；看到“处理器 Intel…”就下载 `x64.dmg`。
 

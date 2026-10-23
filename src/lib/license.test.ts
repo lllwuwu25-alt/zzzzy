@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 const native = vi.hoisted(() => ({ invoke: vi.fn(), isTauri: vi.fn() }))
 vi.mock('@tauri-apps/api/core', () => native)
-import { activateLicense, canUseWorkbench, exportNotebookData, getLicenseStatus, makeActivationRequest } from './license'
+import { activateLicense, canUseWorkbench, exportNotebookData, getLicenseStatus, makeActivationRequest, saveActivationRequest, saveNotebookBackup } from './license'
 import { initialNotebook } from '../data'
 
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllEnvs() })
@@ -40,4 +40,13 @@ it('exports only notebook fields and an activation request never contains raw de
   expect(contents.items).toEqual([])
   expect(contents).not.toHaveProperty('license')
   expect(contents).not.toHaveProperty('workspacePath')
+})
+it('uses native save dialogs for desktop requests and read-only backups without needing activation', async () => {
+  native.isTauri.mockReturnValue(true)
+  native.invoke.mockResolvedValue('/chosen/backup.json')
+  expect(await saveNotebookBackup(initialNotebook)).toContain('backup.json')
+  expect(native.invoke).toHaveBeenCalledWith('export_notebook_backup', { contents: exportNotebookData(initialNotebook) })
+  native.invoke.mockClear()
+  expect(await saveActivationRequest(required)).toContain('backup.json')
+  expect(native.invoke).toHaveBeenCalledWith('export_license_request')
 })

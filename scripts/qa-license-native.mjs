@@ -22,9 +22,15 @@ try {
   const candidates = readdirSync(build).filter(name => name.startsWith('mistake-notebook-')).map(name => join(build, name, process.platform === 'win32' ? 'build-script-build.exe' : 'build-script-build'))
     .filter(path => { try { return statSync(path).isFile() } catch { return false } }).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
   assert(candidates.length, 'Run cargo test before this QA so its build script exists')
-  const denied = spawnSync(candidates[0], [], { cwd: join(root, 'src-tauri'), env: { ...process.env, PROFILE: 'release', NOTEBOOK_LICENSE_PUBLIC_KEY: '' }, encoding: 'utf8' })
+  writeFileSync(join(temporary, 'license-public-key.json'), JSON.stringify({ version: 1, algorithm: 'Ed25519', product: 'mistake-notebook', publicKeyHex: '' }))
+  const denied = spawnSync(candidates[0], [], { cwd: temporary, env: { ...process.env, PROFILE: 'release', NOTEBOOK_LICENSE_PUBLIC_KEY: '' }, encoding: 'utf8' })
   assert.notEqual(denied.status, 0, 'Release without a verification key was allowed')
   assert.match(denied.stderr, /正式发行必须先配置/)
+  for (const key of ['e28a8970753332bd72fef413e6b0b2ef1b4aadda7aa2c141f233712a6876b351', 'd4eec1869fb1b8a4e817516ad5a931557cb56805c3eb16e8f3a803d647df7869']) {
+    const fixtureDenied = spawnSync(candidates[0], [], { cwd: temporary, env: { ...process.env, PROFILE: 'release', NOTEBOOK_LICENSE_PUBLIC_KEY: key }, encoding: 'utf8' })
+    assert.notEqual(fixtureDenied.status, 0, 'Release with a published fixture signer was allowed')
+    assert.match(fixtureDenied.stderr, /不得使用公开的测试公钥发行/, 'Must reject fixture trust before invoking Tauri packaging')
+  }
   assert.equal(readFileSync(join(root, 'src-tauri/license-public-key.json'), 'utf8'), configurationBefore, 'QA must never modify the configured production trust root')
-  console.log(JSON.stringify({ passed: true, nodeToRust: true, releaseFailsClosed: true, productionKeysNotCreated: true }))
+  console.log(JSON.stringify({ passed: true, nodeToRust: true, releaseFailsClosed: true, fixtureKeysRejected: true, productionKeysNotCreated: true }))
 } finally { vault?.close(); rmSync(temporary, { recursive: true, force: true }) }

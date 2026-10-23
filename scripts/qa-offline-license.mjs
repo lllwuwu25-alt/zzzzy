@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import assert from 'node:assert/strict'
@@ -20,7 +20,7 @@ try {
     const notebook = { version: 1, workspaceName: 'Synthetic license QA', taxonomy: { exams: [] }, reviewSettings: { mode: 'adaptive', intervals: { again: 1, hard: 2, good: 4, easy: 7 } }, reviews: [], items: [{ id: 'saved-item', status: 'ready', question: '原有题目：\n| 项目 | 值 |\n|---|---|\n| 甲 | 6 |', questionType: 'short-answer', answer: '原有答案', shortAnswer: { keyPoints: [] }, exam: '', subject: '', chapter: '', cause: '', note: '原有个人笔记', tags: [], images: [], createdAt: now, updatedAt: now, schedule: { due: '2020-01-01T00:00:00Z', reps: 0, stability: 1, difficulty: 5, lapses: 0 } }] }
     const required = { state: 'unactivated', canWrite: false, machineCode: code, platform: 'macos', purchaseCode: null, licenseId: null, message: '尚未激活。请把机器码发给卖家，获取本机永久离线授权。' }
     const active = { ...required, state: 'active', canWrite: true, purchaseCode, licenseId: 'synthetic-browser-license', message: '本机已获得永久离线授权，无需联网续期。' }
-    const controls = { delayNextStatus: false, resolveStatus: null, writes: 0 }
+    const controls = { delayNextStatus: false, resolveStatus: null, writes: 0, exports: [] }
     window.__licenseTest = controls
     window.isTauri = true
     window.__TAURI_INTERNALS__ = {
@@ -37,6 +37,8 @@ try {
           localStorage.setItem('synthetic-license-active', 'yes'); return active
         }
         if (command === 'read_app_notebook') return JSON.stringify(notebook)
+        if (command === 'export_notebook_backup') { controls.exports.push(JSON.parse(args.contents)); return '/synthetic/backup.json' }
+        if (command === 'export_license_request') { controls.exports.push({ machineCode: code }); return '/synthetic/request.json' }
         if (command === 'write_app_notebook' || command === 'write_workspace_notebook') { controls.writes++; if (!localStorage.getItem('synthetic-license-active')) throw '尚未激活'; return null }
         if (command === 'get_ai_settings') return { enabled: false, model: 'deepseek-flash', hasKey: false }
         if (command === 'plugin:event|listen') return 1
@@ -48,13 +50,16 @@ try {
   await page.goto('http://127.0.0.1:5174/')
   await page.getByRole('heading', { name: '把这台设备，变成你的学习工作台。' }).waitFor()
   assert.equal(await page.getByLabel('本机机器码').inputValue(), machineCode(deviceId))
+  await page.getByRole('button', { name: '导出激活申请', exact: true }).click()
+  await page.getByRole('status').filter({ hasText: '激活申请已导出' }).waitFor()
+  assert.equal(await page.evaluate(() => window.__licenseTest.exports[0].machineCode), machineCode(deviceId))
   await page.screenshot({ path: '/tmp/notebook-offline-activation.png', fullPage: true })
   await page.getByRole('button', { name: '查看与导出已有资料', exact: true }).click()
   await page.getByRole('table').waitFor()
   assert.equal(await page.getByRole('button', { name: '收录截图', exact: true }).count(), 0)
-  const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: '导出完整备份', exact: true }).click()
-  const download = await downloadPromise, backup = JSON.parse(readFileSync(await download.path(), 'utf8'))
+  await page.getByRole('status').filter({ hasText: '完整备份已导出' }).waitFor()
+  const backup = await page.evaluate(() => window.__licenseTest.exports[1])
   assert.equal(backup.items[0].note, '原有个人笔记')
   assert(!JSON.stringify(backup).includes('synthetic-browser-license'))
   assert.equal(await page.evaluate(() => window.__licenseTest.writes), 0)

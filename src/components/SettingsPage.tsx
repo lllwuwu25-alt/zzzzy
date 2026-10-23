@@ -2,6 +2,7 @@ import { AiSettings } from './ai/AiSettings'
 import { MotionSettings } from './MotionSettings'
 import { ThemeSettings } from './ThemeSettings'
 import { LicenseSettings } from './license/LicenseSettings'
+import { saveNotebookBackup } from '../lib/license'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArchiveRestore, BookOpenCheck, CalendarRange, Check, ChevronDown, ChevronRight, Clock3, FileArchive, FolderCog, History,
@@ -35,10 +36,10 @@ export function SettingsPage() {
   const [workspaceNotice, setWorkspaceNotice] = useState('')
   const [backupNotice, setBackupNotice] = useState('')
   const isDesktop = isTauri()
-  const exportData = () => {
+  const exportData = async () => {
     const data: Notebook = { version: 1, items: notebook.items, reviews: notebook.reviews, taxonomy: notebook.taxonomy, reviewSettings: notebook.reviewSettings, workspaceName: notebook.workspaceName, workspaceUpdatedAt: new Date().toISOString() }
-    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
-    const link = document.createElement('a'); link.href = url; link.download = `错题本备份-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url)
+    try { const path = await saveNotebookBackup(data); setBackupNotice(path ? '完整备份已导出。' : '') }
+    catch (caught) { setBackupNotice(typeof caught === 'string' ? caught : '导出失败，请检查保存位置和磁盘空间后重试。') }
   }
   const importData = async (file?: File) => {
     if (!file) return

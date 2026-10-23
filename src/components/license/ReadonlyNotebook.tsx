@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ArrowLeft, Download, FileKey2, Search } from 'lucide-react'
-import { downloadText, exportNotebookData } from '../../lib/license'
+import { saveNotebookBackup } from '../../lib/license'
 import type { Notebook } from '../../types'
 import { QuestionContent } from '../QuestionContent'
 import { QuestionAnswerReveal } from '../QuestionAnswerInput'
@@ -10,9 +10,17 @@ import './license.css'
 
 export function ReadonlyNotebook({ notebook, onActivate }: { notebook: Notebook; onActivate: () => void }) {
   const [query, setQuery] = useState(''), [limit, setLimit] = useState(30), [error, setError] = useState('')
+  const [saving, setSaving] = useState(false), [notice, setNotice] = useState('')
+  async function exportBackup() {
+    setSaving(true); setError(''); setNotice('')
+    try { const path = await saveNotebookBackup(notebook); if (path) setNotice('完整备份已导出。') }
+    catch (caught) { setError(typeof caught === 'string' ? caught : caught instanceof Error ? caught.message : '未能生成备份，请检查保存位置和磁盘空间后重试。') }
+    finally { setSaving(false) }
+  }
   const items = notebook.items.filter(item => !query.trim() || [item.question, item.answer, item.cause, item.note, ...item.tags].join('\n').toLowerCase().includes(query.trim().toLowerCase()))
   return <main className="readonly-notebook" onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}>
-    <header className="readonly-heading"><div><span className="license-state"><FileKey2 size={14}/>只读模式</span><h1>已有资料，随时带走。</h1><p>可以查看所有错题并导出完整备份，暂不支持新增、修改或复习评分。</p></div><div className="button-row"><button className="button ghost" onClick={onActivate}><ArrowLeft size={14}/>返回激活</button><button className="button primary" onClick={() => { try { downloadText(exportNotebookData(notebook), `错题本备份-${new Date().toISOString().slice(0, 10)}.json`); setError('') } catch { setError('未能生成备份，请检查浏览器下载权限后重试。') } }}><Download size={15}/>导出完整备份</button></div></header>
+    <header className="readonly-heading"><div><span className="license-state"><FileKey2 size={14}/>只读模式</span><h1>已有资料，随时带走。</h1><p>可以查看所有错题并导出完整备份，暂不支持新增、修改或复习评分。</p></div><div className="button-row"><button className="button ghost" onClick={onActivate}><ArrowLeft size={14}/>返回激活</button><button className="button primary" disabled={saving} onClick={() => void exportBackup()}><Download size={15}/>{saving ? '正在导出' : '导出完整备份'}</button></div></header>
+    <p role="status" className="license-notice">{notice}</p>
     {error && <p className="license-error" role="alert">{error}</p>}
     <label className="readonly-search"><Search size={16}/><input aria-label="搜索已有错题" value={query} onChange={event => { setQuery(event.target.value); setLimit(30) }} placeholder="搜索题干、答案、笔记或标签"/><span>{items.length} 道题</span></label>
     <div className="readonly-list">{items.slice(0, limit).map((item, index) => <details className="readonly-item" key={item.id} open={index === 0 || undefined}>

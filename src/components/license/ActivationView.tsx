@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Copy, Download, FileKey2, NotebookTabs, RefreshCw, ShieldCheck, Upload } from 'lucide-react'
-import { activateLicense, downloadText, licenseLabel, makeActivationRequest, MAX_LICENSE_BYTES, type LicenseStatus } from '../../lib/license'
+import { activateLicense, saveActivationRequest, licenseLabel, MAX_LICENSE_BYTES, type LicenseStatus } from '../../lib/license'
 import { ActionButton } from '../ActionButton'
 import './license.css'
 
@@ -8,6 +8,12 @@ export function ActivationView({ status, onActivated, onReadonly, onRetry, onBac
   const file = useRef<HTMLInputElement>(null), code = useRef<HTMLTextAreaElement>(null), heading = useRef<HTMLHeadingElement>(null)
   const [busy, setBusy] = useState(false), [retrying, setRetrying] = useState(false), [notice, setNotice] = useState(''), [error, setError] = useState('')
   const preview = status.state === 'preview' || status.state === 'development'
+  async function exportRequest() {
+    setBusy(true); setError(''); setNotice('')
+    try { const path = await saveActivationRequest(status); if (path) setNotice('激活申请已导出，请发送给卖家。') }
+    catch (caught) { setError(typeof caught === 'string' ? caught : caught instanceof Error ? caught.message : '未能导出申请，请检查保存位置。') }
+    finally { setBusy(false) }
+  }
   useEffect(() => heading.current?.focus(), [])
   async function importFile(selected?: File) {
     if (!selected) return
@@ -30,7 +36,7 @@ export function ActivationView({ status, onActivated, onReadonly, onRetry, onBac
           <textarea id="activation-machine" ref={code} readOnly value={status.machineCode || ''} placeholder={preview ? '网页预览不生成真实机器码' : '暂时无法读取，请检查权限后重试'} spellCheck={false}/>
           <div className="button-row">
             <button className="button ghost compact" disabled={!status.machineCode || busy} onClick={async () => { try { await navigator.clipboard.writeText(status.machineCode!); setNotice('机器码已复制，可发送给卖家。') } catch { code.current?.focus(); code.current?.select(); setNotice('已选中机器码，请按 ⌘C 或 Ctrl+C 复制。') } }}><Copy size={14}/>复制机器码</button>
-            <button className="button ghost compact" disabled={!status.machineCode || busy} onClick={() => { try { downloadText(JSON.stringify(makeActivationRequest(status), null, 2), `错题本-${status.machineCode!.slice(-8)}.ctb-request.json`); setNotice('激活申请已导出，请发送给卖家。') } catch (caught) { setError(caught instanceof Error ? caught.message : '未能导出申请') } }}><Download size={14}/>导出激活申请</button>
+            <button className="button ghost compact" disabled={!status.machineCode || busy} onClick={() => void exportRequest()}><Download size={14}/>导出激活申请</button>
           </div>
           <small>仅包含经过哈希处理的设备标识，不含题目或原始硬件编号。</small>
         </div>

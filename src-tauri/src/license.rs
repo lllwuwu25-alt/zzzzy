@@ -125,6 +125,9 @@ fn identity() -> Result<String, String> {
     static IDENTITY: OnceLock<String> = OnceLock::new();
     cached_identity(&IDENTITY, read_machine_identity)
 }
+pub(crate) fn activation_request() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "version": 1, "product": PRODUCT, "machineCode": machine_code(&identity()?), "platform": std::env::consts::OS }))
+}
 fn license_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path().app_data_dir().map(|path| path.join("activation.license.json")).map_err(|_| "无法定位授权保存目录".into())
 }
@@ -183,4 +186,14 @@ pub fn import_license(app: tauri::AppHandle, contents: String) -> Result<License
     let device = identity()?;
     import_verified(&license_path(&app)?, &contents, &key, &device)?;
     Ok(status(&app))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod host_probe_tests {
+    #[test]
+    fn macos_hardware_probe_returns_only_a_hashed_device_identifier() {
+        let device = super::read_machine_identity().expect("macOS stable identity should be readable");
+        assert!(super::valid_device(&device));
+        assert!(super::machine_code(&device).starts_with("CTB1-"));
+    }
 }

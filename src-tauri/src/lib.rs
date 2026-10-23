@@ -10,6 +10,7 @@ use tauri::Manager;
 mod ai;
 mod ai_settings;
 mod license;
+mod exports;
 #[cfg(test)]
 mod license_tests;
 #[cfg(test)]
@@ -194,8 +195,9 @@ fn write_workspace_notebook(app: tauri::AppHandle, path: String, contents: Strin
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(ai::Requests::default())
-        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images, license::get_license_status, license::import_license, ai_settings::get_ai_settings, ai_settings::save_ai_settings, ai_settings::delete_ai_key, ai::recognize_ai_question, ai::cancel_ai_request, ai::test_ai_connection])
+        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images, license::get_license_status, license::import_license, exports::export_license_request, exports::export_notebook_backup, ai_settings::get_ai_settings, ai_settings::save_ai_settings, ai_settings::delete_ai_key, ai::recognize_ai_question, ai::cancel_ai_request, ai::test_ai_connection])
         .run(tauri::generate_context!())
         .expect("error while running mistake notebook");
 }

@@ -40,4 +40,17 @@ export function downloadText(contents: string, name: string) {
   const link = document.createElement('a'); link.href = url; link.download = name; link.click()
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
+export async function saveNotebookBackup(notebook: Notebook): Promise<string | null> {
+  const contents = exportNotebookData(notebook)
+  if (isTauri()) return invoke('export_notebook_backup', { contents })
+  const name = `错题本备份-${new Date().toISOString().slice(0, 10)}.json`
+  downloadText(contents, name)
+  return name
+}
+export async function saveActivationRequest(status: LicenseStatus): Promise<string | null> {
+  if (isTauri()) return invoke('export_license_request')
+  const name = `错题本激活申请.ctb-request.json`
+  downloadText(JSON.stringify(makeActivationRequest(status), null, 2), name)
+  return name
+}
 export const licenseLabel = (status: LicenseStatus) => ({ active: '已激活 · 永久离线', unactivated: '尚未激活', invalid: '授权待核对', unavailable: '授权暂不可用', misconfigured: '发行公钥未配置', development: '开发模式', preview: '网页预览' })[status.state]
