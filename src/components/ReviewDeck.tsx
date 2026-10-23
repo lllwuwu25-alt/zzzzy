@@ -40,7 +40,7 @@ export function ReviewDeck({onGoInbox}:{onGoInbox:()=>void}) {
   const close=()=>{if(lock.current)return;setDeck(null);setOutgoing(undefined);setError('')}
   const start=()=>{setDeck({pending:available.map((i)=>i.id),completed:[]});setError('');setRevealed(false);setAnswer('');setLastSessionReview(undefined);startedAt.current=Date.now()}
   const reset=()=>{setRevealed(false);setAnswer('');startedAt.current=Date.now()}
-  const move=(current:Mistake,skipped=false)=>{setOutgoing({item:current,skipped,key:Date.now()});clearTimeout(motionTimer.current);motionTimer.current=setTimeout(()=>setOutgoing(undefined),460)}
+  const move=(current:Mistake,skipped=false)=>{setOutgoing({item:current,skipped,key:Date.now()});clearTimeout(motionTimer.current);motionTimer.current=setTimeout(()=>setOutgoing(undefined),760)}
   const rate=async(rating:Rating)=>{
     if(!item||lock.current)return
     lock.current=true;setBusy(true);setError('')

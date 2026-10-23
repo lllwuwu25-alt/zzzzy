@@ -20,9 +20,7 @@ import { QuestionTypeFields } from './components/QuestionTypeFields'
 import { QuestionAnswerInput, QuestionAnswerReveal } from './components/QuestionAnswerInput'
 import { ratingIntervalHint } from './lib/fsrs'
 import { parseNotebookBackup } from './lib/notebook'
-import { recognizeTypedImage } from './lib/ocr'
-import { parseRecognizedQuestion } from './lib/ocr-parser'
-import { applyParsedQuestion, canCompleteOrganizer } from './lib/question-types'
+import { canCompleteOrganizer } from './lib/question-types'
 import { selectDue, scheduleLabel, useNotebook } from './store'
 import type { ImageAsset, Mistake, Notebook, Page, Rating } from './types'
 
@@ -64,7 +62,7 @@ export function App() {
     setCaptureFocus(ids[0])
     setPage('inbox')
     setImportQueue((queue) => queue.slice(1))
-    setCaptureNotice(`已创建 ${ids.length} 道错题，正在本机识别文字`)
+    setCaptureNotice(`已创建 ${ids.length} 道错题，可直接填写或使用 AI 辅助识别`)
     window.setTimeout(() => setCaptureNotice(''), 3200)
   }, [addTypedCaptures])
 

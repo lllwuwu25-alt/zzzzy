@@ -6,11 +6,13 @@ const output = process.env.NOTEBOOK_QA_DIR || '/tmp/notebook-ai-qa'
 fs.mkdirSync(output, { recursive: true })
 const browser = await chromium.launch({ headless: true, channel: 'chrome' })
 const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } })
-const page = await context.newPage(), failures = [], requests = []
+const page = await context.newPage(), failures = [], requests = [], ocrRequests = []
+let responseDelay = 200
 page.on('pageerror', (error) => failures.push(error.message))
+page.on('request', (request) => { if (/\/ocr\/|tesseract|traineddata/.test(request.url())) ocrRequests.push(request.url()) })
 await page.route('https://api.deepseek.com/**', async (route) => {
   requests.push(route.request().postDataJSON())
-  await new Promise((resolve) => setTimeout(resolve, 200))
+  await new Promise((resolve) => setTimeout(resolve, responseDelay))
   await route.fulfill({ json: { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ questionType: 'short-answer', question: '说明函数连续与可导之间的关系。', answer: '', shortAnswer: { keyPoints: [] } }) } }] } })
 })
 await page.goto('http://127.0.0.1:5174/')
@@ -20,7 +22,7 @@ await page.evaluate(() => {
   const canvas = document.createElement('canvas'); canvas.width = 900; canvas.height = 650
   const ctx = canvas.getContext('2d'); ctx.fillStyle = 'white'; ctx.fillRect(0, 0, 900, 650); ctx.fillStyle = '#243f46'; ctx.font = '26px sans-serif'; ctx.fillText('高等数学 · 每日错题整理', 55, 70); ctx.fillText('说明函数连续与可导之间的关系。', 55, 150); ctx.font = '20px sans-serif'; ctx.fillText('请分别说明必要条件和充分条件，并举例。', 55, 205)
   const now = new Date().toISOString(), due = '2020-01-01T00:00:00Z'
-  const make = (id, status, question, type = 'short-answer') => ({ id, status, question, questionType: type, answer: '', shortAnswer: { keyPoints: [] }, exam: '考研', subject: '数学', chapter: '函数与极限', cause: '', note: '', tags: ['待巩固'], images: [{ id: 'image-'+id, name: '题目.png', dataUrl: canvas.toDataURL(), annotations: [], rotation: 0, sourceWidth:900, sourceHeight:650, editorVersion:2 }], recognition: { status: 'done', reviewed: true }, createdAt: now, updatedAt: now, schedule: { due, stability:1,difficulty:5,reps:0,lapses:0 } })
+  const make = (id, status, question, type = 'short-answer') => ({ id, status, question, questionType: type, answer: '', shortAnswer: { keyPoints: [] }, exam: '考研', subject: '数学', chapter: '函数与极限', cause: '', note: '', tags: ['待巩固'], images: [{ id: 'image-'+id, name: '题目.png', dataUrl: canvas.toDataURL(), recognizedText:'LEGACY_OCR_MUST_NOT_BE_SENT', annotations: [], rotation: 0, sourceWidth:900, sourceHeight:650, editorVersion:2 }], recognition: { status: 'idle', reviewed: false }, createdAt: now, updatedAt: now, schedule: { due, stability:1,difficulty:5,reps:0,lapses:0 } })
   const notebook = { version:1, workspaceName:'测试工作区', reviewSettings: { mode:'adaptive', intervals:{ again:1,hard:2,good:4,easy:7 } }, taxonomy:{ exams:[{name:'考研',subjects:[{name:'数学',chapters:['函数与极限','一元函数微分学']}]}] }, items:[make('inbox-qa','inbox',''),make('ready-qa','ready','求极限：当 x 趋于 0 时，sin x / x 的值。')], reviews:[] }
   localStorage.setItem('mistake-notebook-v1', JSON.stringify(notebook))
 })
@@ -30,10 +32,17 @@ for (const [label, file] of [['今日复习','01-review'],['收集箱','02-inbox
   await page.waitForTimeout(250)
   await page.screenshot({ path: `${output}/${file}.png`, fullPage: true })
 }
+await page.getByRole('button', { name:'收集箱', exact:true }).click()
+if (requests.length || ocrRequests.length) throw new Error('Opening an imported question must not start recognition')
+if (await page.getByRole('textbox', {name:'题干',exact:true}).inputValue()) throw new Error('Import unexpectedly filled question text')
+await page.getByRole('button', {name:'AI 辅助识别',exact:true}).click()
+await page.getByRole('button', {name:'前往设置',exact:true}).waitFor()
+if (requests.length) throw new Error('Unconfigured AI must not send images')
+await page.getByRole('button', {name:'前往设置',exact:true}).click()
 await page.getByLabel('启用联网辅助识别').check()
 await page.getByPlaceholder('输入你的 DeepSeek API Key').fill('qa-session-not-real-key')
 await page.getByRole('button', { name:'保存配置', exact: true }).click()
-await page.getByText('设置已保存。仅在你确认发送后联网识别。', { exact:true }).waitFor()
+await page.getByText('设置已保存。点击 AI 辅助识别时发送图片。', { exact:true }).waitFor()
 await page.getByRole('button', { name:'收集箱', exact: true }).click()
 await page.evaluate(() => { const original=Storage.prototype.setItem; let fail=true; Storage.prototype.setItem=function(key,value){if(key==='mistake-notebook-v1'&&fail){fail=false;throw new DOMException('disk full','QuotaExceededError')} return original.call(this,key,value)} })
 await page.getByRole('textbox',{name:'题干',exact:true}).fill('写入失败后仍需保留的题干')
@@ -44,11 +53,14 @@ const recovered=await page.evaluate(()=>JSON.parse(localStorage.getItem('mistake
 if(recovered!=='写入失败后仍需保留的题干')throw new Error('Failed draft was lost after later save')
 await page.getByRole('textbox',{name:'题干',exact:true}).fill('')
 await page.getByPlaceholder('输入参考答案或解题思路').fill('')
-await page.getByRole('button', { name:'AI 辅助识别', exact:true }).click()
-if (requests.length) throw new Error('API called before send confirmation')
-await page.screenshot({ path:output+'/06-send-confirm.png',fullPage:true })
-await page.getByRole('button', { name:'发送并识别' }).click()
-await page.getByText('识别完成，检查后采用').waitFor()
+await page.getByRole('button', { name:'AI 辅助识别', exact:true }).evaluate(button => { button.click(); button.click() })
+await page.getByText('识别完成，检查后采用').waitFor({timeout:5000})
+if (requests.length !== 1) throw new Error('One click must send exactly one AI request')
+if (await page.getByRole('button', { name:'发送并识别' }).count()) throw new Error('Unexpected second send confirmation')
+if (await page.locator('.organizer-images').getByRole('button', { name:/^(识别文字|重新识别)$/ }).count()) throw new Error('Local OCR is still available')
+if (JSON.stringify(requests[0]).includes('LEGACY_OCR_MUST_NOT_BE_SENT')) throw new Error('Legacy OCR text leaked into recognition')
+if (requests[0].messages[1].content.filter(part => part.type === 'image_url').length !== 1) throw new Error('Question image was not sent')
+await page.screenshot({ path:output+'/06-one-click-ai.png',fullPage:true })
 await page.getByRole('button', { name:'采用非冲突建议' }).click()
 await page.getByRole('textbox', {name:'题干',exact:true}).filter({visible:true}).waitFor()
 if (await page.getByRole('textbox', {name:'题干',exact:true}).inputValue() !== '说明函数连续与可导之间的关系。') throw new Error('AI suggestion was not applied')
@@ -56,6 +68,17 @@ await page.screenshot({path:output+'/07-ai-applied.png',fullPage:true})
 await page.getByRole('button',{name:'撤销上次采用'}).click()
 if (await page.getByRole('textbox',{name:'题干',exact:true}).inputValue() !== '') throw new Error('Undo did not restore field')
 await page.getByRole('button',{name:'采用非冲突建议'}).click()
+responseDelay = 1200
+const pendingRequest = page.waitForRequest('https://api.deepseek.com/chat/completions')
+await page.locator('.ai-assistant').getByRole('button', {name:'重新识别',exact:true}).click()
+await pendingRequest
+await page.getByRole('button', {name:'取消识别',exact:true}).click()
+await page.waitForTimeout(1400)
+if (await page.getByText('识别完成，检查后采用').count()) throw new Error('Cancelled result unexpectedly reappeared')
+if (await page.getByRole('textbox', {name:'题干',exact:true}).inputValue() !== '说明函数连续与可导之间的关系。') throw new Error('Cancellation changed the draft')
+responseDelay = 200
+await page.getByRole('button', {name:'AI 辅助识别',exact:true}).click()
+await page.getByText('识别完成，检查后采用').waitFor()
 await page.getByRole('button',{name:'完成并整理下一题'}).click()
 await page.getByText('收集箱已经整理干净').waitFor()
 await page.getByRole('button',{name:'设置',exact:true}).click()
@@ -74,5 +97,6 @@ for(const width of [1024,760,390]) {
 }
 fs.writeFileSync(output+'/report.json',JSON.stringify({failures, apiCalls:requests.length, screenshots:fs.readdirSync(output).filter((name)=>name.endsWith('.png'))},null,2))
 await browser.close()
+if (ocrRequests.length) failures.push('Local OCR resources were requested')
 if(failures.length) throw new Error(failures.join('\n'))
 console.log(JSON.stringify({passed:true,apiCalls:requests.length,output}))

@@ -23,7 +23,7 @@ pub(crate) fn build_body(model: &str, question_type: &str, images: &[String], oc
     if images.is_empty() || images.len() > 8 { return Err("每次请选择 1–8 张图片".into()); }
     if ocr_text.len() > 200_000 || prompt.len() > 20000 { return Err("识别文字过长，请分批识别".into()); }
     let mut size = 0;
-    let mut content = vec![json!({"type":"text","text":format!("题型：{question_type}。以下是可能有误的 OCR 参考，以图片为准：\n{ocr_text}")})];
+    let mut content = vec![json!({"type":"text","text":format!("题型：{question_type}。请直接根据本题图片提取信息，不推测图片中没有给出的答案。")})];
     for image in images {
         if image.len() > 17 * 1024 * 1024 { return Err("图片过大，请分批识别".into()); }
         let (prefix, encoded) = image.split_once(',').ok_or("图片格式不正确")?;

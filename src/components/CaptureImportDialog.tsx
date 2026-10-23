@@ -32,7 +32,7 @@ export function CaptureImportDialog({
   const title = stage === 'grouping' ? '这些图片应当怎样组成题目？' : groups.length > 1 ? '分别选择每道题的题型' : '选择这道题的题型'
   const description = stage === 'grouping'
     ? '先确认图片归属，再为每道题选择合适的整理方式。'
-    : '系统会按题型识别并自动填入对应字段，之后仍可修改。'
+    : '选择题型后创建错题，可手动填写或一键 AI 识别。'
   const ready = useMemo(() => importReady(groups), [groups])
 
   useEffect(() => { (stage === 'grouping' ? firstButton.current : firstRadio.current)?.focus() }, [stage])
@@ -112,7 +112,7 @@ export function CaptureImportDialog({
 
         <footer>
           <div className="import-dialog-note">
-            <span>导入在本机完成，联网 AI 另行确认</span>
+            <span>图片保存在本机，点击 AI 识别时发送至 DeepSeek</span>
             {skipped > 0 && <span className="warning">已跳过 {skipped} 个不支持的文件</span>}
           </div>
           <div className="button-row">

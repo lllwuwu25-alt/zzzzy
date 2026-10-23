@@ -38,7 +38,7 @@ async function webRequest(request: AiRequest, signal: AbortSignal) {
       method: 'POST', headers: { Authorization: `Bearer ${webKey}`, 'Content-Type': 'application/json' },
       redirect: 'error', signal: controller.signal,
       body: JSON.stringify({ model: webSettings.model, stream: false, thinking: { type: 'disabled' }, max_tokens: 8192, response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: EXTRACTION_PROMPT }, { role: 'user', content: [{ type: 'text', text: `题型：${request.questionType}。以下为可选 OCR 参考，可能有误，以图片为准：\n${request.ocrText.slice(0, 50000)}` }, ...request.images.map((image) => ({ type: 'image_url', image_url: { url: image.dataUrl } }))] }] }),
+        messages: [{ role: 'system', content: EXTRACTION_PROMPT }, { role: 'user', content: [{ type: 'text', text: `题型：${request.questionType}。请直接根据本题图片提取信息，不推测图片中没有给出的答案。` }, ...request.images.map((image) => ({ type: 'image_url', image_url: { url: image.dataUrl } }))] }] }),
     })
     if (!response.ok) throw new Error(aiStatusError(response.status))
     const reader = response.body?.getReader()

@@ -11,31 +11,31 @@ export function useAiRecognition(item: Mistake, onPatch: (patch: Partial<Mistake
   const current = useRef(item); current.current = item
   const previousSource = useRef(item)
   const session = useRef(createRecognitionSession()), controller = useRef<AbortController | undefined>(undefined)
-  const [phase, setPhase] = useState<'idle' | 'confirm' | 'preparing' | 'waiting' | 'checking' | 'done'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'preparing' | 'waiting' | 'checking' | 'done'>('idle')
   const [error, setError] = useState(''), [needsSettings, setNeedsSettings] = useState(false), [model, setModel] = useState('deepseek-flash')
   const [result, setResult] = useState<{ snapshot: Mistake; draft: AiQuestionDraft }>()
   const [changes, setChanges] = useState<SuggestionChange[]>([])
-  const cancel = () => { session.current.cancel(); controller.current?.abort(); setPhase('idle') }
+  const cancel = () => { session.current.cancel(); controller.current?.abort(); controller.current = undefined; setPhase('idle') }
   useEffect(() => { cancel(); setResult(undefined); setChanges([]); setError(''); setNeedsSettings(false); return () => { session.current.cancel(); controller.current?.abort() } }, [item.id])
   useEffect(() => { if (!sameRecognitionSource(previousSource.current, item)) { cancel(); setResult(undefined); setChanges([]) }; previousSource.current = item }, [item.images, item.questionType, item.id])
-  const prepare = async () => {
-    setError(''); setNeedsSettings(false)
-    try {
-      const settings = await getAiSettings()
-      if (!settings.enabled || !settings.hasKey) { setNeedsSettings(true); setError('先在设置中启用 DeepSeek 并填写 API Key，当前草稿会保留。'); return }
-      setModel(settings.model); setPhase('confirm')
-    } catch (e) { setError(typeof e === 'string' ? e : '无法读取 AI 配置，请在设置中检查。') }
-  }
-  const confirm = async (ids: string[]) => {
+  const recognize = async () => {
+    if (controller.current) return
     const snapshot = structuredClone(current.current), token = session.current.start(snapshot.id)
     const abort = new AbortController(); controller.current = abort
-    setPhase('preparing'); setError(''); setResult(undefined); setChanges([])
+    setPhase('preparing'); setError(''); setNeedsSettings(false); setResult(undefined); setChanges([])
     try {
-      const selected = snapshot.images.filter((image) => ids.includes(image.id))
+      if (!snapshot.images.length || snapshot.images.length > 8) throw new Error('每次可识别 1–8 张图片；请拆分题目或减少图片后重试。')
+      const settings = await getAiSettings()
+      if (!session.current.isCurrent(token, current.current.id) || abort.signal.aborted) return
+      if (!settings.enabled || !settings.hasKey) {
+        setNeedsSettings(true); setPhase('idle'); setError('先在设置中启用 DeepSeek 并填写 API Key，当前草稿会保留。'); return
+      }
+      setModel(settings.model)
+      const selected = snapshot.images
       const images = await prepareAiImages(selected, abort.signal)
       if (!session.current.isCurrent(token, current.current.id)) return
       setPhase('waiting')
-      const response = await recognizeAiQuestion({ requestId: crypto.randomUUID(), questionType: snapshot.questionType, images, ocrText: selected.map((image) => image.recognizedText || '').join('\n\n') }, abort.signal)
+      const response = await recognizeAiQuestion({ requestId: crypto.randomUUID(), questionType: snapshot.questionType, images, ocrText: '' }, abort.signal)
       if (!session.current.isCurrent(token, current.current.id)) return
       if (snapshot.images.map((image) => image.id + image.dataUrl).join() !== current.current.images.map((image) => image.id + image.dataUrl).join()) throw new Error('识别期间图片已变更，请对当前图片重新识别。')
       setPhase('checking'); const draft = attachFigures(parseAiQuestion(response.content, snapshot.questionType), selected)
@@ -44,6 +44,8 @@ export function useAiRecognition(item: Mistake, onPatch: (patch: Partial<Mistake
     } catch (e) {
       if (!session.current.isCurrent(token, current.current.id) || abort.signal.aborted) return
       setPhase('idle'); setError(typeof e === 'string' ? e : e instanceof Error ? e.message : '识别失败，请重试。')
+    } finally {
+      if (controller.current === abort) controller.current = undefined
     }
   }
   const suggestions = result ? buildSuggestions(result.snapshot, item, result.draft) : []
@@ -58,5 +60,5 @@ export function useAiRecognition(item: Mistake, onPatch: (patch: Partial<Mistake
     try { onPatch(undoSuggestions(current.current, change)); setChanges((value) => value.slice(0, -1)); setError('') }
     catch (e) { setError((e as Error).message) }
   }
-  return { phase, error, needsSettings, model, result, suggestions, canUndo: !!changes.length, busy: ['preparing', 'waiting', 'checking'].includes(phase), prepare, confirm, cancel, apply, undo, dismiss: () => { setResult(undefined); setPhase('idle') } }
+  return { phase, error, needsSettings, model, result, suggestions, canUndo: !!changes.length, busy: ['preparing', 'waiting', 'checking'].includes(phase), recognize, cancel, apply, undo, dismiss: () => { setResult(undefined); setPhase('idle') } }
 }
