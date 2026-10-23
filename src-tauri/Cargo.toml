@@ -4,7 +4,7 @@ version = "0.1.10"
 description = "错题本：本地优先的错题整理与复习系统"
 authors = ["Mistake Notebook"]
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.81"
 
 [lib]
 name = "mistake_notebook_lib"
@@ -12,6 +12,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
+serde_json = "1"
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "fast"] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -23,3 +25,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tokio = { version = "1", features = ["sync", "macros", "time"] }
 tokio-util = "0.7"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "fast"] }
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

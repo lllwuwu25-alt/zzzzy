@@ -90,6 +90,7 @@ async fn perform(app: &tauri::AppHandle, state: &Requests, request_id: String, q
 }
 #[tauri::command]
 pub async fn recognize_ai_question(app: tauri::AppHandle, state: tauri::State<'_, Requests>, request_id: String, question_type: String, images: Vec<String>, ocr_text: String, prompt: String) -> Result<AiResponse, String> {
+    crate::license::require_write(&app)?;
     perform(&app, &state, request_id, question_type, images, ocr_text, prompt).await
 }
 #[tauri::command]

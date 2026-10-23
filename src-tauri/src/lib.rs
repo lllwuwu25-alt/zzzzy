@@ -9,6 +9,9 @@ use std::{
 use tauri::Manager;
 mod ai;
 mod ai_settings;
+mod license;
+#[cfg(test)]
+mod license_tests;
 #[cfg(test)]
 use ai::{build_body, parse_response, status_error};
 
@@ -32,7 +35,12 @@ struct DroppedImages {
 }
 
 #[tauri::command]
-fn read_dropped_images(paths: Vec<String>) -> Result<DroppedImages, String> {
+fn read_dropped_images(app: tauri::AppHandle, paths: Vec<String>) -> Result<DroppedImages, String> {
+    license::require_write(&app)?;
+    read_dropped_images_impl(paths)
+}
+
+fn read_dropped_images_impl(paths: Vec<String>) -> Result<DroppedImages, String> {
     if paths.len() > 50 {
         return Err("一次最多拖入 50 个文件".into());
     }
@@ -165,13 +173,15 @@ fn read_app_notebook(app: tauri::AppHandle) -> Result<Option<String>, String> {
 
 #[tauri::command]
 fn write_app_notebook(app: tauri::AppHandle, contents: String) -> Result<(), String> {
+    license::require_write(&app)?;
     validate_notebook_json(&contents)?;
     let target = app_notebook_path(&app)?;
     write_atomic(&target, &contents)
 }
 
 #[tauri::command]
-fn write_workspace_notebook(path: String, contents: String) -> Result<(), String> {
+fn write_workspace_notebook(app: tauri::AppHandle, path: String, contents: String) -> Result<(), String> {
+    license::require_write(&app)?;
     validate_notebook_json(&contents)?;
     let directory = Path::new(&path);
     if !directory.is_dir() {
@@ -185,7 +195,7 @@ fn write_workspace_notebook(path: String, contents: String) -> Result<(), String
 pub fn run() {
     tauri::Builder::default()
         .manage(ai::Requests::default())
-        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images, ai_settings::get_ai_settings, ai_settings::save_ai_settings, ai_settings::delete_ai_key, ai::recognize_ai_question, ai::cancel_ai_request, ai::test_ai_connection])
+        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images, license::get_license_status, license::import_license, ai_settings::get_ai_settings, ai_settings::save_ai_settings, ai_settings::delete_ai_key, ai::recognize_ai_question, ai::cancel_ai_request, ai::test_ai_connection])
         .run(tauri::generate_context!())
         .expect("error while running mistake notebook");
 }
@@ -203,7 +213,7 @@ mod tests {
         let bytes = STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nS8AAAAASUVORK5CYII=").unwrap();
         fs::write(&png, bytes).unwrap();
         fs::write(&text, b"not an image").unwrap();
-        let result = read_dropped_images(vec![png.to_string_lossy().into_owned(), text.to_string_lossy().into_owned()]).unwrap();
+        let result = read_dropped_images_impl(vec![png.to_string_lossy().into_owned(), text.to_string_lossy().into_owned()]).unwrap();
         assert_eq!(result.images.len(), 1);
         assert_eq!(result.skipped, 1);
         assert!(result.images[0].data_url.starts_with("data:image/png;base64,"));
