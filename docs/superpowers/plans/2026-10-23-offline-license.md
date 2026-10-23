@@ -31,35 +31,35 @@
 **Files:** tools/license-admin/core.mjs, cli.mjs, *.test.mjs, launcher scripts; package.json; .gitignore.
 **Interfaces:** IssuerVault.create/open(path,password); createPurchase(label); issue(purchaseCode,machineCode,label); replace(purchaseCode,oldMachineCode,newMachineCode,label,reason,acknowledged); list(); publicConfig(); close(); export certificate after durable commit. Machine-code helpers and protocol constants shared within issuer only.
 
-- [ ] Write Node tests for password encryption, two-seat cap, idempotency, replacement audit, lock conflict, corrupt vault, write failure and recovery; observe RED.
-- [ ] Implement Ed25519 certificate generation, encrypted vault validation, process lock and atomic encrypted persistence; add Chinese interactive CLI with hidden password prompts and explicit output locations.
-- [ ] Add npm license:admin / test:license and run Node tests plus full Vitest; commit.
+- [x] Write Node tests for password encryption, two-seat cap, idempotency, replacement audit, lock conflict, corrupt vault, write failure and recovery; observe RED.
+- [x] Implement Ed25519 certificate generation, encrypted vault validation, process lock and atomic encrypted persistence; add Chinese interactive CLI with hidden password prompts and explicit output locations.
+- [x] Add npm license:admin / test:license and run Node tests plus full Vitest; commit.
 
 ### Task 2: Native trust, machine identity and enforcement
 
 **Files:** src-tauri/src/license.rs, license_tests.rs, Cargo.toml/lock, build.rs, src-tauri/license-public-key.json, src-tauri/src/lib.rs, ai.rs.
 **Interfaces:** get_license_status() → {state,canWrite,machineCode?,platform,purchaseCode?,licenseId?,message}; import_license(contents) → same; require_write(app) → Result; pure verify(contents,publicKey,deviceId) and machine fingerprint helpers.
 
-- [ ] Add failing Rust tests for valid signed certificate, altered fields/signature, wrong product/device/key, strict size/schema and unauthorized write policy.
-- [ ] Implement native identity and strict verify; persist valid activation atomically only; compile-time trust config and release fail-closed check.
-- [ ] Guard native writes/image import/AI recognition; register commands; verify Node-issued fixtures in Rust and preservation after invalid import.
-- [ ] Run Rust suite plus existing frontend and issuer tests; commit.
+- [x] Add failing Rust tests for valid signed certificate, altered fields/signature, wrong product/device/key, strict size/schema and unauthorized write policy.
+- [x] Implement native identity and strict verify; persist valid activation atomically only; compile-time trust config and release fail-closed check.
+- [x] Guard native writes/image import/AI recognition; register commands; verify Node-issued fixtures in Rust and preservation after invalid import.
+- [x] Run Rust suite plus existing frontend and issuer tests; commit.
 
 ### Task 3: Activation, safe read-only access and settings
 
 **Files:** src/lib/license.ts, license context/activation/readonly/settings components + tests/styles, main.tsx, SettingsPage.tsx.
 **Interfaces:** typed LicenseStatus adapter; LicenseBoundary loads native status, opens activation/read-only, refreshes on activation; LicenseSettings shows current state and activation action.
 
-- [ ] Write failing UI/adapter tests for required/active/development/preview/error states and readable export without write actions.
-- [ ] Implement machine-code copy/request export, bounded file import, clear errors, live status, and read-only notebook viewer/export; no native activation in browser preview.
-- [ ] Integrate root boundary and settings preserving normal App and all themes; test with mocked native IPC in isolated browser, not real keys or data.
-- [ ] Run all local tests/build and browser regressions; commit.
+- [x] Write failing UI/adapter tests for required/active/development/preview/error states and readable export without write actions.
+- [x] Implement machine-code copy/request export, bounded file import, clear errors, live status, and read-only notebook viewer/export; no native activation in browser preview.
+- [x] Integrate root boundary and settings preserving normal App and all themes; test with mocked native IPC in isolated browser, not real keys or data.
+- [x] Run all local tests/build and browser regressions; commit.
 
 ### Task 4: Distribution safeguards, seller instructions and final audit
 
 **Files:** release.yml, LICENSE-GUIDE.md, README.md, security fixture/interoperability scripts, docs/qa.
 
-- [ ] Make release CI require the public configuration and run issuer/Rust validation before packaging; never add a private-key secret to CI.
-- [ ] Document seller init/backup/create/sign/re-download/manual replacement and public-key setup, user activation/read-export, irreversible private-key loss and offline limitations.
-- [ ] Run cross-language and fail-closed release preflight checks, full JS/Rust/build tests, isolated activation and existing theme/table/AI flows; inspect activation screenshots.
-- [ ] Request one independent final read-only security review; fix important findings with RED→GREEN tests, then commit and hand off preview without packaging.
+- [x] Make release CI require the public configuration and run issuer/Rust validation before packaging; never add a private-key secret to CI.
+- [x] Document seller init/backup/create/sign/re-download/manual replacement and public-key setup, user activation/read-export, irreversible private-key loss and offline limitations.
+- [x] Run cross-language and fail-closed release preflight checks, full JS/Rust/build tests, isolated activation and existing theme/table/AI flows; inspect activation screenshots.
+- [x] Request one independent final read-only security review; fix important findings with RED→GREEN tests, then commit and hand off preview without packaging.
