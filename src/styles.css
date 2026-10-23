@@ -47,6 +47,12 @@ button:disabled{cursor:not-allowed;opacity:.45}
 :is(.button,.icon-button,.tool,.rating,.mini-add,.answer-toggle,.catalog-add-trigger,.catalog-add button,.sidebar nav button,.question-type-switch button,.choice-mode button,.grouping-actions>button,.cycle-mode>button):not(:disabled):active{transform:translateY(1px) scale(.985);transition-duration:70ms;transition-timing-function:var(--press-ease)}
 @keyframes button-spin{to{transform:rotate(360deg)}}@keyframes button-success{0%{opacity:0;transform:scale(.72)}70%{transform:scale(1.08)}100%{opacity:1;transform:scale(1)}}
 main{min-height:calc(100vh - 64px)}
+.storage-recovery{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:28px;background:#f6fafb}
+.storage-recovery section{width:min(100%,520px);color:var(--ink)}
+.storage-recovery section>svg{color:var(--primary)}
+.storage-recovery h1{font-size:24px;font-weight:600;line-height:1.5;margin:18px 0 12px;text-wrap:balance}
+.storage-recovery p{font-size:14px;line-height:1.8;color:#435d65;overflow-wrap:anywhere;margin:12px 0}
+.storage-recovery .button{margin-top:14px}
 .review-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:calc(100vh - 64px)}
 .review-canvas{padding:24px 30px 48px;min-width:0}
 .breadcrumb{height:36px;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.8125rem}

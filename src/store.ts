@@ -4,6 +4,7 @@ import { initialNotebook } from './data'
 import { duePriority, scheduleReview } from './lib/fsrs'
 import { parseNotebookBackup } from './lib/notebook'
 import { defaultTypeContent, normalizeMistakeType } from './lib/question-types'
+import { readWebNotebook, writeWebNotebook, migrateWebNotebook } from './lib/web-notebook-storage'
 import type { ImageAsset, Mistake, Notebook, QuestionType, Rating, Review, ReviewSettings, Schedule } from './types'
 
 const KEY = 'mistake-notebook-v1'
@@ -70,16 +71,44 @@ const persistNotebook = async (state: Notebook, requireWorkspace = false) => {
     }
     return
   }
-  localStorage.setItem(KEY, contents)
+  await writeWebNotebook(contents)
 }
 
 let persistenceQueue = Promise.resolve()
-const queuePersist = (state: Notebook, requireWorkspace = false) => {
-  const task = persistenceQueue.then(() => persistNotebook(state, requireWorkspace))
+type Mutation = { build: (state: State) => Partial<State> | void; optimistic: boolean }
+let committedState: State | undefined
+const mutations: Mutation[] = []
+const publishPending = () => {
+  let projected = committedState!
+  for (const mutation of mutations) {
+    if (!mutation.optimistic) continue
+    try { projected = { ...projected, ...mutation.build(projected) } }
+    catch { /* The queued commit will reject this mutation without losing other edits. */ }
+  }
+  useNotebook.setState(projected)
+}
+const queueMutation = (build: Mutation['build'], optimistic = false, requireWorkspace = false) => {
+  committedState ??= useNotebook.getState()
+  const mutation = { build, optimistic }
+  mutations.push(mutation)
+  if (optimistic) publishPending()
+  const task = persistenceQueue.then(async () => {
+    try {
+      const patch = build(committedState!)
+      if (patch) {
+        const next = { ...committedState!, ...patch }
+        await persistNotebook(core(next), requireWorkspace)
+        committedState = next
+      }
+    } finally {
+      mutations.splice(mutations.indexOf(mutation), 1)
+      publishPending()
+    }
+  })
   persistenceQueue = task.catch(() => undefined)
   return task
 }
-const persist = (state: Notebook) => { void queuePersist(state).catch(() => undefined) }
+const optimisticUpdate = (build: Mutation['build']) => { void queueMutation(build, true).catch(() => undefined) }
 const core = (state: State): Notebook => ({
   version: 1,
   items: state.items,
@@ -91,7 +120,7 @@ const core = (state: State): Notebook => ({
   workspaceUpdatedAt: state.workspaceUpdatedAt,
 })
 
-export const useNotebook = create<State>((set, get) => ({
+export const useNotebook = create<State>((_set, get) => ({
   ...load(),
   addCapture: async (images) => {
     const ids = await get().addTypedCaptures([{ images, questionType: 'short-answer' }])
@@ -100,97 +129,84 @@ export const useNotebook = create<State>((set, get) => ({
   addTypedCaptures: async (groups) => {
     const stamp = new Date().toISOString()
     const ids = groups.map(() => uid('item'))
-    const state = get()
     const items = groups.map((group, index) => captureItem(ids[index], group.images, stamp, group.questionType))
-    const next = { ...state, items: [...items, ...state.items] }
-    await queuePersist(core(next))
-    set(next)
+    await queueMutation((state) => ({ items: [...items, ...state.items] }))
     return ids
   },
   splitCapture: async (id) => {
-    const source = get().items.find((item) => item.id === id)
-    if (!source || source.images.length < 2) return source ? [source.id] : []
-    const ids = source.images.map(() => uid('item'))
-    const state = get()
-    const replacements = source.images.map((image, index) => ({
-      ...captureItem(ids[index], [image], source.createdAt, source.questionType),
-      exam: source.exam, subject: source.subject, chapter: source.chapter,
-      answer: source.answer, cause: source.cause, note: source.note, tags: [...source.tags],
+    let ids: string[] = []
+    await queueMutation((state) => {
+      const source = state.items.find((item) => item.id === id)
+      if (!source || source.images.length < 2) { ids = source ? [source.id] : []; return }
+      ids = source.images.map(() => uid('item'))
+      const replacements = source.images.map((image, index) => ({
+        ...captureItem(ids[index], [image], source.createdAt, source.questionType),
+        exam: source.exam, subject: source.subject, chapter: source.chapter,
+        answer: source.answer, cause: source.cause, note: source.note, tags: [...source.tags],
     }))
     const position = state.items.findIndex((item) => item.id === id)
     const items = [...state.items]
     items.splice(position, 1, ...replacements)
-    const next = { ...state, items }
-    await queuePersist(core(next))
-    set(next)
+    return { items }
+    })
     return ids
   },
-  updateItem: (id, patch) => set((state) => {
+  updateItem: (id, patch) => optimisticUpdate((state) => {
     const next = { ...state, items: state.items.map((item) => item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item) }
-    persist(core(next))
     return next
   }),
   updateItemNow: async (id, patch) => {
-    const state = get()
-    const next = { ...state, items: state.items.map((item) => item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item) }
-    await queuePersist(core(next))
-    set(next)
+    await queueMutation((state) => ({ items: state.items.map((item) => item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item) }))
   },
   saveOrganized: async (id, patch) => get().updateItemNow(id, { ...patch, status: 'ready' }),
   trashItem: (id) => get().updateItem(id, { status: 'trashed', deletedAt: new Date().toISOString() }),
   restoreItem: (id) => get().updateItem(id, { status: 'ready', deletedAt: undefined }),
-  purgeExpired: () => set((state) => {
+  purgeExpired: () => optimisticUpdate((state) => {
     const cutoff = Date.now() - 30 * 86_400_000
     const next = { ...state, items: state.items.filter((item) => item.status !== 'trashed' || !item.deletedAt || new Date(item.deletedAt).getTime() > cutoff) }
-    persist(core(next))
     return next
   }),
   rate: async (id, rating, answerText, durationSeconds) => {
-    const state = get()
-    const item = state.items.find((entry) => entry.id === id)
-    if (!item) return
-    const before = clone(item.schedule)
-    const after = scheduleReview(before, rating, new Date(), state.reviewSettings)
-    const review: Review = { id: uid('review'), mistakeId: id, rating, answerText, reviewedAt: new Date().toISOString(), durationSeconds, before, after }
-    const next = {
-      ...state,
-      items: state.items.map((entry) => entry.id === id ? { ...entry, schedule: after, updatedAt: review.reviewedAt } : entry),
-      reviews: [review, ...state.reviews],
-      lastReview: review,
-    }
-    await queuePersist(core(next))
-    set(next)
+    await queueMutation((state) => {
+      const item = state.items.find((entry) => entry.id === id)
+      if (!item) return
+      const before = clone(item.schedule)
+      const after = scheduleReview(before, rating, new Date(), state.reviewSettings)
+      const review: Review = { id: uid('review'), mistakeId: id, rating, answerText, reviewedAt: new Date().toISOString(), durationSeconds, before, after }
+      const next = {
+        ...state,
+        items: state.items.map((entry) => entry.id === id ? { ...entry, schedule: after, updatedAt: review.reviewedAt } : entry),
+        reviews: [review, ...state.reviews],
+        lastReview: review,
+      }
+      return next
+    })
   },
   undoRating: async () => {
-    const state = get()
-    const review = state.lastReview
-    if (!review) return
-    const next = {
-      ...state,
-      items: state.items.map((item) => item.id === review.mistakeId ? { ...item, schedule: review.before } : item),
-      reviews: state.reviews.filter((entry) => entry.id !== review.id),
-      lastReview: undefined,
-    }
-    await queuePersist(core(next))
-    set(next)
+    await queueMutation((state) => {
+      const review = state.lastReview
+      if (!review) return
+      const next = {
+        ...state,
+        items: state.items.map((item) => item.id === review.mistakeId ? { ...item, schedule: review.before } : item),
+        reviews: state.reviews.filter((entry) => entry.id !== review.id),
+        lastReview: undefined,
+      }
+      return next
+    })
   },
   replaceNotebook: async (data) => {
     const migrated = normalizeNotebook(data)
-    await queuePersist(migrated)
-    set({ ...migrated, lastReview: undefined })
+    await queueMutation(() => ({ ...migrated, lastReview: undefined }))
   },
   setWorkspace: async (path) => {
-    const state = get()
     const normalized = path.replace(/[\\/]+$/, '')
     const name = normalized.split(/[\\/]/).pop() || '我的错题本'
-    const next = { ...state, workspacePath: normalized, workspaceName: name, workspaceUpdatedAt: new Date().toISOString() }
-    await queuePersist(core(next), true)
-    set(next)
+    await queueMutation(() => ({ workspacePath: normalized, workspaceName: name, workspaceUpdatedAt: new Date().toISOString() }), false, true)
   },
-  setReviewSettings: (reviewSettings) => set((state) => {
+  setReviewSettings: (reviewSettings) => optimisticUpdate((state) => {
     const intervals = Object.fromEntries(Object.entries(reviewSettings.intervals).map(([key, value]) => [key, Math.min(3650, Math.max(1, Math.round(Number(value) || 1)))])) as ReviewSettings['intervals']
     const next = { ...state, reviewSettings: { ...reviewSettings, intervals } }
-    persist(core(next))
     return next
   }),
   addExam: (name) => {
@@ -198,8 +214,10 @@ export const useNotebook = create<State>((set, get) => ({
     if (!value) return '考试名称不能为空'
     const state = get()
     if (state.taxonomy.exams.some((entry) => entry.name === value)) return '这个考试已经存在'
-    const next = { ...state, taxonomy: { exams: [...state.taxonomy.exams, { name: value, subjects: [] }] } }
-    persist(core(next)); set(next)
+    optimisticUpdate((state) => {
+      const next = { ...state, taxonomy: { exams: [...state.taxonomy.exams, { name: value, subjects: [] }] } }
+      return next
+    })
   },
   addSubject: (exam, name) => {
     const value = name.trim()
@@ -208,8 +226,10 @@ export const useNotebook = create<State>((set, get) => ({
     const parent = state.taxonomy.exams.find((entry) => entry.name === exam)
     if (!parent) return '请先选择考试'
     if (parent.subjects.some((entry) => entry.name === value)) return '这个科目已经存在'
-    const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: [...entry.subjects, { name: value, chapters: [] }] } : entry) }
-    const next = { ...state, taxonomy }; persist(core(next)); set(next)
+    optimisticUpdate((state) => {
+      const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: [...entry.subjects, { name: value, chapters: [] }] } : entry) }
+      const next = { ...state, taxonomy }; return next
+    })
   },
   addChapter: (exam, subject, name) => {
     const value = name.trim()
@@ -218,15 +238,19 @@ export const useNotebook = create<State>((set, get) => ({
     const parent = state.taxonomy.exams.find((entry) => entry.name === exam)?.subjects.find((entry) => entry.name === subject)
     if (!parent) return '请先选择科目'
     if (parent.chapters.includes(value)) return '这个章节已经存在'
-    const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: entry.subjects.map((subjectEntry) => subjectEntry.name === subject ? { ...subjectEntry, chapters: [...subjectEntry.chapters, value] } : subjectEntry) } : entry) }
-    const next = { ...state, taxonomy }; persist(core(next)); set(next)
+    optimisticUpdate((state) => {
+      const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: entry.subjects.map((subjectEntry) => subjectEntry.name === subject ? { ...subjectEntry, chapters: [...subjectEntry.chapters, value] } : subjectEntry) } : entry) }
+      const next = { ...state, taxonomy }; return next
+    })
   },
   renameExam: (name, nextName) => {
     const value = nextName.trim(); const state = get()
     if (!value) return '考试名称不能为空'
     if (value !== name && state.taxonomy.exams.some((entry) => entry.name === value)) return '这个考试已经存在'
-    const next = { ...state, taxonomy: { exams: state.taxonomy.exams.map((entry) => entry.name === name ? { ...entry, name: value } : entry) }, items: state.items.map((item) => item.exam === name ? { ...item, exam: value, updatedAt: new Date().toISOString() } : item) }
-    persist(core(next)); set(next)
+    optimisticUpdate((state) => {
+      const next = { ...state, taxonomy: { exams: state.taxonomy.exams.map((entry) => entry.name === name ? { ...entry, name: value } : entry) }, items: state.items.map((item) => item.exam === name ? { ...item, exam: value, updatedAt: new Date().toISOString() } : item) }
+      return next
+    })
   },
   renameSubject: (exam, name, nextName) => {
     const value = nextName.trim(); const state = get()
@@ -234,9 +258,11 @@ export const useNotebook = create<State>((set, get) => ({
     const parent = state.taxonomy.exams.find((entry) => entry.name === exam)
     if (!parent) return '考试不存在'
     if (value !== name && parent.subjects.some((entry) => entry.name === value)) return '这个科目已经存在'
-    const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: entry.subjects.map((subject) => subject.name === name ? { ...subject, name: value } : subject) } : entry) }
-    const next = { ...state, taxonomy, items: state.items.map((item) => item.exam === exam && item.subject === name ? { ...item, subject: value, updatedAt: new Date().toISOString() } : item) }
-    persist(core(next)); set(next)
+    optimisticUpdate((state) => {
+      const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: entry.subjects.map((subject) => subject.name === name ? { ...subject, name: value } : subject) } : entry) }
+      const next = { ...state, taxonomy, items: state.items.map((item) => item.exam === exam && item.subject === name ? { ...item, subject: value, updatedAt: new Date().toISOString() } : item) }
+      return next
+    })
   },
   renameChapter: (exam, subject, name, nextName) => {
     const value = nextName.trim(); const state = get()
@@ -244,39 +270,59 @@ export const useNotebook = create<State>((set, get) => ({
     const parent = state.taxonomy.exams.find((entry) => entry.name === exam)?.subjects.find((entry) => entry.name === subject)
     if (!parent) return '科目不存在'
     if (value !== name && parent.chapters.includes(value)) return '这个章节已经存在'
-    const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: entry.subjects.map((subjectEntry) => subjectEntry.name === subject ? { ...subjectEntry, chapters: subjectEntry.chapters.map((chapter) => chapter === name ? value : chapter) } : subjectEntry) } : entry) }
-    const next = { ...state, taxonomy, items: state.items.map((item) => item.exam === exam && item.subject === subject && item.chapter === name ? { ...item, chapter: value, updatedAt: new Date().toISOString() } : item) }
-    persist(core(next)); set(next)
+    optimisticUpdate((state) => {
+      const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: entry.subjects.map((subjectEntry) => subjectEntry.name === subject ? { ...subjectEntry, chapters: subjectEntry.chapters.map((chapter) => chapter === name ? value : chapter) } : subjectEntry) } : entry) }
+      const next = { ...state, taxonomy, items: state.items.map((item) => item.exam === exam && item.subject === subject && item.chapter === name ? { ...item, chapter: value, updatedAt: new Date().toISOString() } : item) }
+      return next
+    })
   },
   deleteExam: (name) => {
     const state = get(); const exam = state.taxonomy.exams.find((entry) => entry.name === name)
     if (!exam) return '考试不存在'
     if (exam.subjects.length) return '请先删除该考试下的科目'
     if (state.items.some((item) => item.exam === name)) return '仍有错题使用这个考试，暂时不能删除'
-    const next = { ...state, taxonomy: { exams: state.taxonomy.exams.filter((entry) => entry.name !== name) } }; persist(core(next)); set(next)
+    optimisticUpdate((state) => {
+      const next = { ...state, taxonomy: { exams: state.taxonomy.exams.filter((entry) => entry.name !== name) } }; return next
+    })
   },
   deleteSubject: (exam, name) => {
     const state = get(); const subject = state.taxonomy.exams.find((entry) => entry.name === exam)?.subjects.find((entry) => entry.name === name)
     if (!subject) return '科目不存在'
     if (subject.chapters.length) return '请先删除该科目下的章节'
     if (state.items.some((item) => item.exam === exam && item.subject === name)) return '仍有错题使用这个科目，暂时不能删除'
-    const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: entry.subjects.filter((subjectEntry) => subjectEntry.name !== name) } : entry) }
-    const next = { ...state, taxonomy }; persist(core(next)); set(next)
+    optimisticUpdate((state) => {
+      const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: entry.subjects.filter((subjectEntry) => subjectEntry.name !== name) } : entry) }
+      const next = { ...state, taxonomy }; return next
+    })
   },
   deleteChapter: (exam, subject, name) => {
     const state = get()
     if (state.items.some((item) => item.exam === exam && item.subject === subject && item.chapter === name)) return '仍有错题使用这个章节，暂时不能删除'
-    const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: entry.subjects.map((subjectEntry) => subjectEntry.name === subject ? { ...subjectEntry, chapters: subjectEntry.chapters.filter((chapter) => chapter !== name) } : subjectEntry) } : entry) }
-    const next = { ...state, taxonomy }; persist(core(next)); set(next)
+    optimisticUpdate((state) => {
+      const taxonomy = { exams: state.taxonomy.exams.map((entry) => entry.name === exam ? { ...entry, subjects: entry.subjects.map((subjectEntry) => subjectEntry.name === subject ? { ...subjectEntry, chapters: subjectEntry.chapters.filter((chapter) => chapter !== name) } : subjectEntry) } : entry) }
+      const next = { ...state, taxonomy }; return next
+    })
   },
 }))
 
 export async function hydrateNotebook() {
-  if (!isTauri()) return
+  if (!isTauri()) {
+    const saved = await readWebNotebook()
+    const contents = saved ?? localStorage.getItem(KEY)
+    if (contents === null) return
+    const parsed = JSON.parse(contents) as Partial<Notebook>
+    let notebook = saved === null
+      ? parseNotebookBackup({ ...parsed, reviewSettings: normalizeNotebook(parsed).reviewSettings })
+      : parseNotebookBackup(parsed)
+    if (saved === null) notebook = parseNotebookBackup(JSON.parse(await migrateWebNotebook(JSON.stringify(notebook))))
+    useNotebook.setState({ ...notebook, lastReview: undefined })
+    // Keep the legacy value untouched as a recovery backup. All future writes use IndexedDB.
+    return
+  }
   try {
     const contents = await invoke<string | null>('read_app_notebook')
     if (!contents) {
-      await queuePersist(core(useNotebook.getState()))
+      await queueMutation(() => ({}))
       return
     }
     const notebook = parseNotebookBackup(normalizeNotebook(JSON.parse(contents) as Partial<Notebook>))

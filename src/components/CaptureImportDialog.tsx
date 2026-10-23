@@ -3,6 +3,7 @@ import { AlignLeft, Check, FormInput, ListChecks, X } from 'lucide-react'
 import { ActionButton } from './ActionButton'
 import { assignGroupType, groupsFor, importReady, type ImportGroup, type ImportMode } from '../lib/import-flow'
 import type { ImageAsset, QuestionType } from '../types'
+import { storageErrorMessage } from '../lib/storage-errors'
 
 const typeOptions: Array<{ id: QuestionType; label: string; description: string; icon: typeof FormInput }> = [
   { id: 'fill-blank', label: '填空题', description: '按空位逐项整理答案', icon: FormInput },
@@ -56,8 +57,8 @@ export function CaptureImportDialog({
     setError('')
     try {
       await onComplete(groups as TypedImportGroup[])
-    } catch {
-      setError('图片已经读取，但写入本地存储失败。请检查磁盘空间或工作区权限后重试。')
+    } catch (error) {
+      setError(`${storageErrorMessage(error)} 待导入图片仍保留在当前窗口，可以直接重试。`)
       setSaving(false)
     }
   }

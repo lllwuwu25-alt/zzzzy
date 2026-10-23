@@ -21,6 +21,7 @@ import type { ImageAsset, Mistake, Notebook, Page, Rating } from '../types'
 
 import { Field, ImageStrip, TaxonomySelect, fileToAsset, isSupportedImageFile } from './shared'
 import { AiAssistant } from './ai/AiAssistant'
+import { storageErrorMessage } from '../lib/storage-errors'
 const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/bmp'
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024
 const MAX_CAPTURE_FILES = 50
@@ -85,8 +86,8 @@ export function Organizer({ item, onNext, remaining, onSettings }: { item: Mista
       await persistence.current
       await save(item.id, currentForm.current)
       onNext(item.id)
-    } catch {
-      setNotice('保存失败，请检查磁盘空间后重试。当前内容仍保留在页面中。')
+    } catch (error) {
+      setNotice(`${storageErrorMessage(error)} 当前内容仍保留在页面中。`)
     } finally {
       finishing.current = false
       setSaving(false)

@@ -16,7 +16,7 @@ for(const [width,height]of [[1440,900],[1280,720],[390,844]]){
  await page.screenshot({path:`${out}/answer-${width}.png`,fullPage:true})
 }
 await page.setViewportSize({width:1280,height:720})
-await page.evaluate(()=>{const n=JSON.parse(localStorage.getItem('mistake-notebook-v1'));n.items[0].status='inbox';n.items[0].recognition={status:'done',reviewed:true};localStorage.setItem('mistake-notebook-v1',JSON.stringify(n))})
+await page.evaluate(async()=>{const {readWebNotebook,writeWebNotebook}=await import('/src/lib/web-notebook-storage.ts');const n=JSON.parse(await readWebNotebook());n.items[0].status='inbox';n.items[0].recognition={status:'done',reviewed:true};await writeWebNotebook(JSON.stringify(n))})
 await page.reload();await page.getByRole('button',{name:'收集箱',exact:true}).click()
 await page.getByRole('button',{name:'编辑选项 A',exact:true}).click()
 const editor=page.getByRole('textbox',{name:'选项 A',exact:true})
