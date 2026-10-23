@@ -1,0 +1,24 @@
+.question-content{min-width:0;max-width:100%;font:inherit;line-height:1.75;overflow-wrap:anywhere}
+.question-content>*+*{margin-top:14px}.question-content-text{white-space:pre-wrap}
+.question-table-scroll{max-width:100%;overflow:auto;overscroll-behavior-x:contain;scrollbar-width:thin;margin-block:14px;border-radius:4px}
+.question-table-scroll table{width:100%;border-collapse:collapse;background:#fff;font-size:13px;font-weight:400;line-height:1.7}
+.question-table-scroll th,.question-table-scroll td{border:1px solid #b9ccd0;padding:9px 12px;vertical-align:middle;min-width:64px;overflow-wrap:anywhere;white-space:normal}
+.question-table-scroll th{background:#eef5f6;font-weight:600;color:#254b54}
+.question-table-scroll code{font:inherit;background:transparent;color:inherit}
+.question-content-sr{position:absolute!important;width:1px;height:1px;padding:0!important;margin:-1px!important;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.ai-rich-copy{min-width:0;margin:0;color:inherit;font-size:12px;line-height:1.8}
+.ai-rich-copy .question-table-scroll{margin-block:6px}.ai-rich-copy table{font-size:12px}
+.rich-field-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.rich-field-heading>label{font-weight:600}
+.rich-field-heading .button{min-height:28px;font-size:11px;padding:0 8px}
+.rich-field-preview{padding:13px 14px;border:1px solid #cdd9dc;background:#fff;border-radius:8px;min-width:0;font-weight:400}
+.rich-field-preview .question-table-scroll:last-child{margin-bottom:0}
+.deck-question .question-content-text{font-size:18px;line-height:1.7}.deck-question .question-table-scroll{margin-bottom:0}
+.deck-card .answer-text{font-size:13px;line-height:1.7;margin-top:8px;min-width:0}
+.structured-answer .answer-text{min-width:0;margin:0}
+.table-option-field .rich-text-field{margin:0;min-width:0}.table-option-field textarea{min-height:150px}
+.review-table-option{grid-column:1/-1;min-width:0;border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+.review-table-option.selected{border-color:#65aeb2;background:#eaf6f6}
+.review-choice-input .review-table-option>label{border:0;border-radius:0;background:transparent}
+.review-table-option>.question-content{padding:0 12px 10px}.review-table-option .question-table-scroll{margin-block:0}
+.review-table-option:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:600px){.question-table-scroll th,.question-table-scroll td{padding:7px 8px;min-width:52px}.deck-question .question-content-text{font-size:16px}}
