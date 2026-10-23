@@ -31,6 +31,7 @@ function mistake(value: unknown): value is Mistake {
     || !['exam', 'subject', 'chapter', 'question', 'answer', 'cause', 'note', 'createdAt', 'updatedAt'].every((key) => string(value[key]))
     || !stringList(value.tags) || !Array.isArray(value.images) || !value.images.every(image) || !schedule(value.schedule)) return false
   if (value.questionType !== undefined && !['fill-blank', 'choice', 'short-answer'].includes(String(value.questionType))) return false
+  if (value.diagrams !== undefined && (!Array.isArray(value.diagrams) || value.diagrams.length > 12 || !value.diagrams.every((d) => record(d) && string(d.imageId) && string(d.caption) && finite(d.x) && finite(d.y) && finite(d.width) && finite(d.height) && d.x >= 0 && d.y >= 0 && d.width > 0 && d.height > 0 && d.x + d.width <= 1000 && d.y + d.height <= 1000))) return false
   if (value.choice !== undefined && (!record(value.choice) || !['single', 'multiple'].includes(String(value.choice.mode))
     || !Array.isArray(value.choice.options) || !value.choice.options.every((option) => record(option) && string(option.id) && string(option.label) && string(option.text))
     || !stringList(value.choice.correctOptionIds))) return false

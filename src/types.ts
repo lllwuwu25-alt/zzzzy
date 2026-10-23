@@ -73,6 +73,7 @@ export type Schedule = {
   lastReview?: string
 }
 
+export type QuestionDiagram = { imageId: string; x: number; y: number; width: number; height: number; caption: string }
 export type Mistake = {
   id: string
   status: 'inbox' | 'ready' | 'trashed'
@@ -86,6 +87,7 @@ export type Mistake = {
   fillBlank?: FillBlankContent
   shortAnswer?: ShortAnswerContent
   recognition?: RecognitionState
+  diagrams?: QuestionDiagram[]
   cause: string
   note: string
   tags: string[]

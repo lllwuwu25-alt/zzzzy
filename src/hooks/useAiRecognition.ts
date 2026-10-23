@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Mistake } from '../types'
 import { getAiSettings, recognizeAiQuestion } from '../lib/ai/client'
 import { prepareAiImages } from '../lib/ai/images'
+import { attachFigures } from '../lib/ai/figures'
 import { parseAiQuestion, type AiQuestionDraft } from '../lib/ai/schema'
 import { createRecognitionSession, sameRecognitionSource } from '../lib/ai/session'
 import { applySuggestions, buildSuggestions, undoSuggestions, type SuggestionChange } from '../lib/ai/suggestions'
@@ -37,7 +38,7 @@ export function useAiRecognition(item: Mistake, onPatch: (patch: Partial<Mistake
       const response = await recognizeAiQuestion({ requestId: crypto.randomUUID(), questionType: snapshot.questionType, images, ocrText: selected.map((image) => image.recognizedText || '').join('\n\n') }, abort.signal)
       if (!session.current.isCurrent(token, current.current.id)) return
       if (snapshot.images.map((image) => image.id + image.dataUrl).join() !== current.current.images.map((image) => image.id + image.dataUrl).join()) throw new Error('识别期间图片已变更，请对当前图片重新识别。')
-      setPhase('checking'); const draft = parseAiQuestion(response.content, snapshot.questionType)
+      setPhase('checking'); const draft = attachFigures(parseAiQuestion(response.content, snapshot.questionType), selected)
       if (current.current.questionType !== snapshot.questionType) throw new Error('题型已变更，请重新识别。')
       setModel(response.model); setResult({ snapshot, draft }); setPhase('done')
     } catch (e) {

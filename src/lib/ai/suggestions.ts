@@ -1,14 +1,15 @@
 import type { Mistake } from '../../types'
 import type { AiQuestionDraft } from './schema'
 
-export type SuggestionKey = 'question' | 'answer' | 'choice' | 'fillBlank' | 'shortAnswer'
+export type SuggestionKey = 'question' | 'answer' | 'choice' | 'fillBlank' | 'shortAnswer' | 'diagrams'
 export type FieldSuggestion = { key: SuggestionKey; label: string; before: unknown; value: unknown; conflict: boolean }
 export type SuggestionChange = { patch: Partial<Mistake>; before: Partial<Mistake> }
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
-const labels: Record<SuggestionKey, string> = { question: '题干', answer: '参考答案', choice: '选项与正确选项', fillBlank: '填空答案', shortAnswer: '答题要点' }
+const labels: Record<SuggestionKey, string> = { question: '题干', answer: '参考答案', choice: '选项与正确选项', fillBlank: '填空答案', shortAnswer: '答题要点', diagrams: '题目配图' }
 
 export function buildSuggestions(snapshot: Mistake, current: Mistake, draft: AiQuestionDraft): FieldSuggestion[] {
   const keys: SuggestionKey[] = ['question', 'answer', draft.questionType === 'choice' ? 'choice' : draft.questionType === 'fill-blank' ? 'fillBlank' : 'shortAnswer']
+  if(draft.diagrams)keys.push('diagrams')
   return keys.filter((key) => draft[key] !== undefined && !equal(current[key], draft[key])).map((key) => ({ key, label: labels[key], before: current[key], value: draft[key], conflict: !equal(snapshot[key], current[key]) }))
 }
 

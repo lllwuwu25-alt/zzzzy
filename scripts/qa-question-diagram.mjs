@@ -1,0 +1,15 @@
+import {createRequire} from 'node:module'
+import fs from 'node:fs'
+const require=createRequire('/Users/qichen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/package.json')
+const {chromium}=require('playwright'),browser=await chromium.launch({channel:'chrome',headless:true})
+const page=await browser.newPage({viewport:{width:1440,height:1000}}),out='previews/question-diagram';fs.mkdirSync(out,{recursive:true})
+const image='data:image/png;base64,'+fs.readFileSync('/var/folders/r8/j45pmbks5n168_sgwfd3nhsh0000gn/T/codex-clipboard-51a11922-1f38-4103-8d11-3888d85f06b7.png').toString('base64')
+await page.route('https://api.deepseek.com/**',r=>r.fulfill({json:{choices:[{finish_reason:'stop',message:{content:JSON.stringify({questionType:'fill-blank',question:'如图，在正方体中，M、N 为线段上的动点，判断下列结论。',answer:'',fillBlank:{blanks:[{id:'one',answer:''}]},figures:[{imageIndex:1,bbox:[30,175,250,375],caption:'正方体示意图'}]})}}]}}))
+await page.goto('http://127.0.0.1:5174/')
+await page.evaluate((image)=>{const now=new Date().toISOString();localStorage.setItem('mistake-notebook-v1',JSON.stringify({version:1,workspaceName:'图形测试',taxonomy:{exams:[]},reviews:[],reviewSettings:{mode:'adaptive',intervals:{again:1,hard:2,good:4,easy:7}},items:[{id:'figure-test',status:'inbox',question:'',questionType:'fill-blank',fillBlank:{blanks:[]},answer:'',exam:'高考',subject:'数学',chapter:'立体几何',cause:'',note:'',tags:[],images:[{id:'source',name:'正方体题目.png',dataUrl:image,annotations:[],rotation:0,editorVersion:2}],recognition:{status:'done',reviewed:true},createdAt:now,updatedAt:now,schedule:{due:'2020-01-01T00:00:00Z',stability:1,difficulty:5,reps:0,lapses:0}}]}))},image)
+await page.reload();await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByLabel('启用联网辅助识别').check();await page.getByPlaceholder('输入你的 DeepSeek API Key').fill('fake-local-test');await page.getByRole('button',{name:'保存配置',exact:true}).click();await page.getByText('设置已保存。仅在你确认发送后联网识别。').waitFor()
+await page.getByRole('button',{name:'收集箱',exact:true}).click();await page.getByRole('button',{name:'AI 辅助识别'}).click();await page.getByRole('button',{name:'发送并识别'}).click();await page.getByText('识别完成，检查后采用').waitFor();await page.getByRole('button',{name:'采用非冲突建议'}).click();await page.getByRole('button',{name:'完成并整理下一题'}).click()
+await page.getByRole('button',{name:'今日复习',exact:true}).click();await page.getByRole('button',{name:'开始复习'}).click();const diagram=page.getByRole('dialog').getByRole('img',{name:'正方体示意图'});await diagram.waitFor();await page.waitForTimeout(400)
+const size=await diagram.evaluate(c=>({width:c.width,height:c.height}));if(size.width<250||size.height<250)throw Error('Figure was not cropped/rendered')
+const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('mistake-notebook-v1')).items[0]);if(saved.images[0].dataUrl!==image||saved.diagrams.length!==1)throw Error('Original changed or diagram missing')
+await page.screenshot({path:out+'/review.png',fullPage:true});await browser.close();console.log(JSON.stringify({passed:true,originalPreserved:true,crop:size}))

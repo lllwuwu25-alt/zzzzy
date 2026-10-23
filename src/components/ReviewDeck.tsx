@@ -1,3 +1,4 @@
+import {QuestionDiagrams} from './QuestionDiagrams'
 import {MathText} from './MathText'
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, BookOpenCheck, Check, ChevronRight, Layers3, RotateCcw, X } from 'lucide-react'
@@ -77,7 +78,7 @@ export function ReviewDeck({onGoInbox}:{onGoInbox:()=>void}) {
         <div className="deck-card-meta"><span>{[item.exam,item.subject,item.chapter].filter(Boolean).join(' / ')||'未分类错题'}</span><span>{pending.length} 道待复习</span></div>
         <div className="deck-card-body">
           <div className="deck-question"><span className="deck-question-type">{item.questionType==='choice'?'选择题':item.questionType==='fill-blank'?'填空题':'简答题'}</span><h1><MathText text={item.question||'查看图片作答'}/></h1></div>
-          {item.images.length>0&&<details className="deck-source" open={!item.question.trim()||undefined}><summary>查看题目原图 · {item.images.length} 张</summary><ImageStrip images={item.images} masked={!revealed}/></details>}
+          <QuestionDiagrams item={item} masked={!revealed}/>{item.images.length>0&&<details className="deck-source" open={!item.question.trim()||undefined}><summary>查看题目原图 · {item.images.length} 张</summary><ImageStrip images={item.images} masked={!revealed}/></details>}
           {!revealed?<QuestionAnswerInput item={item} value={answer} onChange={setAnswer}/>:<div className="answer-reveal"><QuestionAnswerReveal item={item}/>{item.cause&&<div className="cause-block"><span>上次为什么错</span><p><MathText text={item.cause}/></p></div>}</div>}
         </div>
         <div className="deck-card-footer">{!revealed?<div className="review-actions"><button className="button ghost" disabled={pending.length<2||busy} onClick={()=>{move(item,true);setDeck((d)=>d?skipCard(d):d);reset()}}>暂时跳过</button><button className="button primary" onClick={()=>setRevealed(true)}>显示答案<ArrowRight size={15}/></button></div>:<div className="rating-area"><span>这次掌握得怎么样？</span><div className="rating-grid">{ratings.map(({id,label})=><button key={id} className={`rating ${id}`} disabled={busy} onClick={()=>void rate(id)}><strong>{label}</strong><span>{ratingIntervalHint(id,store.reviewSettings)}</span></button>)}</div></div>}{error&&<p className="deck-error" role="alert">{error}</p>}</div>

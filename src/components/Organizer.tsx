@@ -1,3 +1,4 @@
+import {QuestionDiagrams} from './QuestionDiagrams'
 import {MathText, hasMath} from './MathText'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -71,6 +72,7 @@ export function Organizer({ item, onNext, remaining, onSettings }: { item: Mista
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; window.clearTimeout(feedbackTimer.current) } }, [])
   const patchFields = (values: Partial<Mistake>) => {
     if (finishing.current) return
+    if(values.images)values={...values,diagrams:(values.diagrams??currentForm.current.diagrams)?.filter((d)=>values.images?.some((i)=>i.id===d.imageId&&i.dataUrl===currentForm.current.images.find((old)=>old.id===d.imageId)?.dataUrl))}
     const next = { ...currentForm.current, ...values }
     currentForm.current = next; setForm(next)
     const version = ++revision.current
@@ -179,7 +181,7 @@ export function Organizer({ item, onNext, remaining, onSettings }: { item: Mista
         <AiAssistant item={form} onPatch={applyAiPatch} onSettings={onSettings} />
         <section className="organizer-section essential-fields">
           <Field label="题干"><textarea value={form.question} onChange={(e) => patchReviewed({ question: e.target.value })} placeholder="检查识别结果，补全题目文字" />{hasMath(form.question)&&<div className="math-field-preview"><small>排版预览</small><MathText text={form.question}/></div>}</Field>
-          <QuestionTypeFields item={form} onPatch={patchFields} />
+          <QuestionTypeFields item={form} onPatch={patchFields} /><div className="diagram-editor-section"><strong>题目配图</strong><QuestionDiagrams item={form} onChange={(diagrams)=>patchFields({diagrams})}/></div>
         </section>
         <section className="organizer-section classification-section">
           <div className="compact-section-heading"><div><strong>分类</strong><span>{[form.exam, form.subject, form.chapter].filter(Boolean).join(' / ') || '可稍后补充'}</span></div></div>
