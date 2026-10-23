@@ -1,3 +1,4 @@
+import { ReviewDeck } from './components/ReviewDeck'
 import { getMotionPreference } from './lib/preferences'
 import { Organizer } from './components/Organizer'
 import { SettingsPage } from './components/SettingsPage'
@@ -133,7 +134,7 @@ export function App() {
           <CaptureButton onFiles={addFiles} />
         </header>
         <main id="main" className="page-transition" key={page}>
-          {page === 'review' && <ReviewPage onGoInbox={() => setPage('inbox')} />}
+          {page === 'review' && <ReviewDeck onGoInbox={() => setPage('inbox')} />}
           {page === 'inbox' && <InboxPage focusId={captureFocus} onFiles={addFiles} onSettings={() => setPage('settings')} />}
           {page === 'library' && <LibraryPage />}
           {page === 'history' && <HistoryPage />}
@@ -155,96 +156,6 @@ function CaptureButton({ onFiles }: { onFiles: (files: FileList) => void }) {
 function CaptureDropZone({ onFiles, compact = false }: { onFiles: (files: FileList) => void; compact?: boolean }) {
   const input = useRef<HTMLInputElement>(null)
   return <><button type="button" className={`capture-dropzone ${compact ? 'compact' : ''}`} onClick={() => input.current?.click()}><ImagePlus size={compact ? 17 : 24} /><span><strong>{compact ? '拖入图片' : '把题目图片拖到这里'}</strong><small>{compact ? '或点击选择' : '支持 PNG、JPEG、WebP、GIF、BMP，也可以直接粘贴截图'}</small></span></button><input ref={input} hidden type="file" accept={IMAGE_ACCEPT} multiple onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} /></>
-}
-
-function ReviewPage({ onGoInbox }: { onGoInbox: () => void }) {
-  const allItems = useNotebook((state) => state.items)
-  const rate = useNotebook((state) => state.rate)
-  const undo = useNotebook((state) => state.undoRating)
-  const lastReview = useNotebook((state) => state.lastReview)
-  const reviewSettings = useNotebook((state) => state.reviewSettings)
-  const [queueIds, setQueueIds] = useState(() => selectDue(useNotebook.getState()).map((item) => item.id))
-  const initialTotal = useRef(queueIds.length)
-  const [revealed, setRevealed] = useState(false)
-  const [answerText, setAnswerText] = useState('')
-  const [ratingBusy, setRatingBusy] = useState(false)
-  const [queueOpen, setQueueOpen] = useState(true)
-  const [reviewError, setReviewError] = useState('')
-  const startedAt = useRef(Date.now())
-  const queue = queueIds.flatMap((id) => { const item = allItems.find((entry) => entry.id === id && entry.status === 'ready'); return item ? [item] : [] })
-  const item = queue[0]
-  const complete = !item
-
-  const submitRating = async (rating: Rating) => {
-    if (!item || ratingBusy) return
-    setRatingBusy(true); setReviewError('')
-    try {
-      await rate(item.id, rating, answerText, Math.max(1, Math.round((Date.now() - startedAt.current) / 1000)))
-      setQueueIds((ids) => ids.filter((id) => id !== item.id))
-      setRevealed(false); setAnswerText(''); startedAt.current = Date.now()
-    } catch { setReviewError('评分没有保存成功，请检查磁盘空间后重试。') }
-    finally { setRatingBusy(false) }
-  }
-
-  const undoLast = async () => {
-    if (!lastReview) return
-    setReviewError('')
-    try {
-      await undo()
-      setQueueIds((ids) => [lastReview.mistakeId, ...ids.filter((id) => id !== lastReview.mistakeId)])
-      initialTotal.current = Math.max(initialTotal.current, queueIds.length + 1)
-    } catch { setReviewError('撤销没有保存成功，请稍后重试。') }
-  }
-
-  if (complete) return (
-    <div className="empty-focus">
-      <span className="success-orb"><BookOpenCheck size={28} /></span>
-      <h1>今天到期的题已经复习完了</h1>
-      <p>做得不错。新的安排已根据本次反馈写入本地复习计划。</p>
-      {reviewError && <p className="field-error" role="alert">{reviewError}</p>}
-      <div className="button-row">
-        {lastReview && <button className="button ghost" onClick={() => void undoLast()}><RotateCcw size={16} />撤销上一条评分</button>}
-        <button className="button primary" onClick={onGoInbox}>整理收集箱</button>
-      </div>
-    </div>
-  )
-
-  return (
-    <div className={`review-layout ${queueOpen ? '' : 'queue-hidden'}`}><button className="button ghost compact queue-toggle" aria-expanded={queueOpen} onClick={() => setQueueOpen((v) => !v)}>{queueOpen ? '收起队列' : '显示队列'}</button>
-      <section className="review-canvas">
-        <div className="breadcrumb"><span>{item.exam}</span><ChevronRight /><span>{item.subject}</span><ChevronRight /><strong>{item.chapter}</strong></div>
-        <article className="question-sheet">
-          <div className="question-heading"><div><span>本轮还剩 {queue.length} 题</span><h1>{item.question || '未填写题干'}</h1></div></div>
-          <ImageStrip images={item.images} masked={!revealed} />
-          {!revealed ? (
-            <>
-              <QuestionAnswerInput item={item} value={answerText} onChange={setAnswerText} />
-              <div className="review-actions"><button className="button ghost" disabled={queue.length < 2} onClick={() => { setQueueIds((ids) => [...ids.slice(1), ids[0]]); setAnswerText(''); setRevealed(false); startedAt.current = Date.now() }}>暂时跳过</button><button className="button primary" onClick={() => setRevealed(true)}>显示答案</button></div>
-            </>
-          ) : (
-            <div className="answer-reveal">
-              <QuestionAnswerReveal item={item} />
-              {item.cause && <div className="cause-block"><span>上次为什么错</span><p>{item.cause}</p></div>}
-              <div className="rating-area"><span>这次掌握得怎么样？</span><div className="rating-grid">
-                <RatingButton id="again" label="重来" hint={ratingIntervalHint('again', reviewSettings)} disabled={ratingBusy} onClick={submitRating} />
-                <RatingButton id="hard" label="困难" hint={ratingIntervalHint('hard', reviewSettings)} disabled={ratingBusy} onClick={submitRating} />
-                <RatingButton id="good" label="良好" hint={ratingIntervalHint('good', reviewSettings)} disabled={ratingBusy} onClick={submitRating} />
-                <RatingButton id="easy" label="简单" hint={ratingIntervalHint('easy', reviewSettings)} disabled={ratingBusy} onClick={submitRating} />
-              </div>{reviewError && <small className="field-error" role="alert">{reviewError}</small>}</div>
-            </div>
-          )}
-        </article>
-      </section>
-      <aside className="queue-panel">
-        <div className="queue-title"><div><span>今日队列</span><strong>{Math.max(0, initialTotal.current - queue.length)} / {initialTotal.current}</strong></div><div className="progress"><i style={{ width: `${initialTotal.current ? ((initialTotal.current - queue.length) / initialTotal.current) * 100 : 100}%` }} /></div><small>预计还需 {Math.max(2, queue.length * 3)} 分钟</small></div>
-        <div className="queue-list">{queue.slice(1, 7).map((entry, position) => <button key={entry.id} onClick={() => setQueueIds((ids) => [entry.id, ...ids.filter((id) => id !== entry.id)])}><span>{position + 2}</span><div><strong>{entry.question}</strong><small>{entry.subject} · {entry.chapter}</small></div></button>)}</div>
-      </aside>
-    </div>
-  )
-}
-
-function RatingButton({ id, label, hint, disabled, onClick }: { id: Rating; label: string; hint: string; disabled?: boolean; onClick: (id: Rating) => void | Promise<void> }) {
-  return <button className={`rating ${id}`} disabled={disabled} onClick={() => void onClick(id)}><strong>{label}</strong><span>{hint}</span></button>
 }
 
 function InboxPage({ focusId, onFiles, onSettings }: { focusId?: string; onFiles: (files: FileList) => void; onSettings: () => void }) {
