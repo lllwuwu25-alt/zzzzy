@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:license",
+    "test:license": "node --test tools/license-admin/*.test.mjs",
+    "license:admin": "node tools/license-admin/cli.mjs",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"

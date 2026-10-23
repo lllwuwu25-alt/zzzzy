@@ -13,3 +13,7 @@ src-tauri/gen/
 .env
 .env.*
 !.env.example
+*.vault.json
+*.vault.json.*
+license-private/
+*.ctb-license.json
