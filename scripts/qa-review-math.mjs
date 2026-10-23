@@ -1,0 +1,27 @@
+import {createRequire} from 'node:module'
+import fs from 'node:fs'
+const require=createRequire('/Users/qichen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/package.json')
+const {chromium}=require('playwright'),browser=await chromium.launch({channel:'chrome',headless:true})
+const page=await browser.newPage(),out='previews/review-math';fs.mkdirSync(out,{recursive:true})
+await page.goto('http://127.0.0.1:5174/')
+await page.evaluate(()=>{const now=new Date().toISOString(),item={id:'math-test',status:'ready',question:String.raw`将函数 $y=\sin 2x$ 的图象向左平移 $\varphi\;(\varphi>0)$ 个单位长度，得到的图象恰好关于直线 $x=\frac{\pi}{6}$ 对称，则 $\varphi$ 的最小值是（　）。`,questionType:'choice',choice:{mode:'single',options:[12,6,4,3].map((n,i)=>({id:String(i),label:String.fromCharCode(65+i),text:'$\\frac{\\pi}{'+n+'}$'})),correctOptionIds:[]},answer:'',exam:'高考',subject:'数学',chapter:'三角函数',cause:'',note:'',tags:[],images:[],createdAt:now,updatedAt:now,schedule:{due:'2020-01-01T00:00:00Z',reps:0,stability:1,difficulty:5,lapses:0}};localStorage.setItem('mistake-notebook-v1',JSON.stringify({version:1,workspaceName:'独立测试',taxonomy:{exams:[]},reviewSettings:{mode:'adaptive',intervals:{again:1,hard:2,good:4,easy:7}},reviews:[],items:[item]}))})
+for(const [width,height]of [[1440,900],[1280,720],[390,844]]){
+ await page.setViewportSize({width,height});await page.reload();await page.getByRole('button',{name:'开始复习'}).click();await page.waitForTimeout(350)
+ if(await page.locator('.review-choice-input math mfrac').count()!==4)throw Error('Options not rendered as fractions')
+ if(await page.locator('.review-modal').evaluate(e=>e.scrollHeight>e.clientHeight+2))throw Error('Modal needs scrolling')
+ if(await page.locator('.deck-card-body').evaluate(e=>e.scrollHeight>e.clientHeight+2))throw Error('Normal math question needs scrolling')
+ const button=await page.getByRole('button',{name:'显示答案'}).boundingBox();if(!button||button.y+button.height>height)throw Error('Action outside viewport')
+ await page.screenshot({path:`${out}/question-${width}.png`,fullPage:true});await page.getByRole('button',{name:'显示答案'}).click()
+ if(await page.locator('.review-modal').evaluate(e=>e.scrollHeight>e.clientHeight+2))throw Error('Answer modal needs scrolling')
+ await page.screenshot({path:`${out}/answer-${width}.png`,fullPage:true})
+}
+await page.setViewportSize({width:1280,height:720})
+await page.evaluate(()=>{const n=JSON.parse(localStorage.getItem('mistake-notebook-v1'));n.items[0].status='inbox';n.items[0].recognition={status:'done',reviewed:true};localStorage.setItem('mistake-notebook-v1',JSON.stringify(n))})
+await page.reload();await page.getByRole('button',{name:'收集箱',exact:true}).click()
+await page.getByRole('button',{name:'编辑选项 A',exact:true}).click()
+const editor=page.getByRole('textbox',{name:'选项 A',exact:true})
+if(!await editor.inputValue().then(v=>v.includes('frac')))throw Error('Formula source lost')
+await editor.fill('$\\frac{\\pi}{10}$');await editor.press('Enter')
+await page.getByRole('button',{name:'编辑选项 A',exact:true}).waitFor()
+if(await page.getByRole('button',{name:'编辑选项 A',exact:true}).locator('mfrac').count()!==1)throw Error('Edited fraction not rendered')
+await browser.close();console.log('Formula, editable source and compact viewport checks passed: 1440x900, 1280x720, 390x844')

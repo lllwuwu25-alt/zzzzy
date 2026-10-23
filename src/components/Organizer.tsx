@@ -1,3 +1,4 @@
+import {MathText, hasMath} from './MathText'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArchiveRestore, BookOpenCheck, CalendarRange, Check, ChevronDown, ChevronRight, Clock3, FileArchive, FolderCog, History,
@@ -177,7 +178,7 @@ export function Organizer({ item, onNext, remaining, onSettings }: { item: Mista
         <div className="image-zoom-controls"><button className="button ghost compact" onClick={() => setImageZoom((v) => Math.max(.5, v - .25))} aria-label="缩小原图">−</button><span>{Math.round(imageZoom * 100)}%</span><button className="button ghost compact" onClick={() => setImageZoom((v) => Math.min(3, v + .25))} aria-label="放大原图">＋</button><button className="button ghost compact" onClick={() => setImageZoom(1)}>适合窗口</button></div>
         <AiAssistant item={form} onPatch={applyAiPatch} onSettings={onSettings} />
         <section className="organizer-section essential-fields">
-          <Field label="题干"><textarea value={form.question} onChange={(e) => patchReviewed({ question: e.target.value })} placeholder="检查识别结果，补全题目文字" /></Field>
+          <Field label="题干"><textarea value={form.question} onChange={(e) => patchReviewed({ question: e.target.value })} placeholder="检查识别结果，补全题目文字" />{hasMath(form.question)&&<div className="math-field-preview"><small>排版预览</small><MathText text={form.question}/></div>}</Field>
           <QuestionTypeFields item={form} onPatch={patchFields} />
         </section>
         <section className="organizer-section classification-section">
