@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { hydrateNotebook } from './store'
 import './styles.css'
+import './workbench.css'
 
 async function start() {
   await hydrateNotebook()

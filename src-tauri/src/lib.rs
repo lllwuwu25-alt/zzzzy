@@ -7,6 +7,14 @@ use std::{
     process::Command,
 };
 use tauri::Manager;
+mod ai;
+mod ai_settings;
+#[cfg(test)]
+use ai::{build_body, parse_response, status_error};
+
+#[cfg(test)]
+#[path = "ai_tests.rs"]
+mod ai_tests;
 
 const MAX_DROPPED_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
 
@@ -176,7 +184,8 @@ fn write_workspace_notebook(path: String, contents: String) -> Result<(), String
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images])
+        .manage(ai::Requests::default())
+        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images, ai_settings::get_ai_settings, ai_settings::save_ai_settings, ai_settings::delete_ai_key, ai::recognize_ai_question, ai::cancel_ai_request, ai::test_ai_connection])
         .run(tauri::generate_context!())
         .expect("error while running mistake notebook");
 }

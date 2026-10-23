@@ -112,7 +112,7 @@ export function CaptureImportDialog({
 
         <footer>
           <div className="import-dialog-note">
-            <span>图片只在本机处理</span>
+            <span>导入在本机完成，联网 AI 另行确认</span>
             {skipped > 0 && <span className="warning">已跳过 {skipped} 个不支持的文件</span>}
           </div>
           <div className="button-row">

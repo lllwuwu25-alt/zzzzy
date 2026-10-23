@@ -9,7 +9,7 @@ const labels: Record<SuggestionKey, string> = { question: '题干', answer: '参
 
 export function buildSuggestions(snapshot: Mistake, current: Mistake, draft: AiQuestionDraft): FieldSuggestion[] {
   const keys: SuggestionKey[] = ['question', 'answer', draft.questionType === 'choice' ? 'choice' : draft.questionType === 'fill-blank' ? 'fillBlank' : 'shortAnswer']
-  return keys.filter((key) => draft[key] !== undefined && !equal(current[key], draft[key])).map((key) => ({ key, label: labels[key], before: snapshot[key], value: draft[key], conflict: !equal(snapshot[key], current[key]) }))
+  return keys.filter((key) => draft[key] !== undefined && !equal(current[key], draft[key])).map((key) => ({ key, label: labels[key], before: current[key], value: draft[key], conflict: !equal(snapshot[key], current[key]) }))
 }
 
 export function applySuggestions(current: Mistake, suggestions: FieldSuggestion[], selectedIds: string[]): SuggestionChange {
