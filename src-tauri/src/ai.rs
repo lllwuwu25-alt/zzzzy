@@ -74,7 +74,7 @@ async fn perform(app: &tauri::AppHandle, state: &Requests, request_id: String, q
         let (settings, key, body) = tokio::task::spawn_blocking(move || -> Result<_, String> {
             let settings = ai_settings::read_settings(&app)?;
             if !settings.enabled { return Err("请先在设置中启用 DeepSeek".into()); }
-            let key = ai_settings::read_key()?.ok_or("请先填写 DeepSeek API 密钥")?;
+            let key = ai_settings::read_key(&app)?.ok_or("请先填写 DeepSeek API 密钥")?;
             let body = build_body(&settings.model, &question_type, &images, &ocr_text, &prompt)?;
             Ok((settings, key, body))
         }).await.map_err(|_| "无法准备识别请求".to_string())??;
