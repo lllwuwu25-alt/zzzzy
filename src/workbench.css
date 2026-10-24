@@ -12,7 +12,7 @@ input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
 .nav-selection{position:absolute;inset:0 0 auto;height:46px;z-index:0;border:1px solid #42717a;background:#1c4b54;border-radius:8px;transform:translateY(calc(var(--nav-index)*50px));transition:transform var(--motion-state) var(--ease-out)}
 .nav-collapse{position:absolute;right:14px;bottom:100px;color:#bcd0d3;width:32px;height:32px}.nav-collapse:hover{background:#ffffff12;color:var(--on-primary)}
 .local-note{padding:16px 10px 0;gap:9px}.local-note span{color:#bcd0d3}.local-note strong{font-weight:500}
-.sidebar{overflow-y:auto}
+.sidebar{overflow-x:hidden;overflow-y:auto}
 .sidebar>.brand,.sidebar>nav{flex-shrink:0}
 .sidebar-footer{margin-top:auto;padding-top:24px;flex-shrink:0}
 .sidebar-footer .nav-collapse{position:static;margin:0 0 16px auto}
@@ -20,10 +20,25 @@ input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
 .sidebar-footer .local-note{margin-top:0}
 /* Display the supplied square artwork through a wordmark-sized window; source pixels stay unchanged. */
 .brand-signature{position:relative;aspect-ratio:5/1;margin:18px 10px 0;overflow:hidden;background:transparent}
-.brand-signature img{position:absolute;width:116%;max-width:none;height:auto;left:-8%;top:50%;transform:translateY(-48.8%);filter:invert(1) grayscale(1) contrast(3);mix-blend-mode:multiply;user-select:none;pointer-events:none}
+.brand-signature img{position:absolute;width:116%;max-width:none;height:auto;left:-8%;top:50%;transform:translateY(-48.8%);filter:grayscale(1) contrast(3);mix-blend-mode:screen;user-select:none;pointer-events:none}
+:root:is([data-theme=mist],[data-theme=paint]) .brand-signature img{filter:invert(1) grayscale(1) contrast(3);mix-blend-mode:multiply}
 .nav-collapsed .brand-signature{display:none}
 @media(max-width:760px){.nav-collapsed .brand-signature{display:block}.sidebar-footer .nav-collapse{display:none}}
 .nav-collapsed .sidebar{width:72px}.nav-collapsed .workspace{padding-left:72px}.nav-collapsed .brand{padding:0 4px}.nav-collapsed .brand div,.nav-collapsed nav button>span,.nav-collapsed nav button>b,.nav-collapsed .local-note div{display:none}.nav-collapsed .sidebar nav button{justify-content:center;padding:0}.nav-collapsed .local-note{justify-content:center}.nav-collapsed .nav-collapse{right:20px}.nav-collapsed .brand-mark{width:40px;flex:0 0 40px}
+@media(min-width:761px){
+  /* Preserve the expanded footer's geometry while the sidebar reveals it. */
+  .sidebar-footer{width:192px}
+  .sidebar-footer .local-note{width:192px;white-space:nowrap;justify-content:flex-start}
+  .sidebar-footer .local-note>svg{flex:0 0 16px;transition:transform var(--motion-state) var(--ease-out)}
+  .sidebar-footer .local-note div,.sidebar-footer .brand-signature{opacity:1;visibility:visible;transition:opacity 160ms ease-out 60ms}
+  .sidebar .sidebar-footer .nav-collapse.icon-button{margin:0 0 16px 160px;transform:translateX(0);transition:transform var(--motion-state) var(--ease-out),background-color 150ms,color 150ms}
+  .nav-collapsed .sidebar-footer .nav-collapse.icon-button{margin-left:160px;margin-right:0;transform:translateX(-152px)}
+  .nav-collapsed .sidebar-footer .local-note div{display:grid}
+  .nav-collapsed .sidebar-footer .brand-signature{display:block}
+  .nav-collapsed .sidebar-footer .local-note div,.nav-collapsed .sidebar-footer .brand-signature{opacity:0;visibility:hidden;transition-delay:0ms}
+  .nav-collapsed .sidebar-footer .local-note>svg{transform:translateX(6px)}
+  .brand div,.sidebar nav button>span{white-space:nowrap}
+}
 .topbar{height:72px;padding:0 30px;background:var(--panel);backdrop-filter:none}.topbar strong{font-size:15px;font-weight:600}.topbar span{font-size:11px;margin-top:3px;color:var(--muted)}
 main{min-height:calc(100vh - 72px)}.page{padding:32px;max-width:1500px;margin:auto}.page-heading{margin-bottom:26px}.page-heading h1{font-size:25px;font-weight:600}.page-heading p{font-size:13px;line-height:1.7}
 .button{min-height:38px;padding:0 13px;border-radius:7px;font-size:12px;font-weight:500}.button.primary{box-shadow:none;background:var(--primary);border-color:var(--primary)}.button.primary:hover{box-shadow:none;background:var(--primary-hover);border-color:var(--primary-hover)}.button:disabled{opacity:.55}.button.compact{min-height:30px;padding:0 10px;font-size:11px}

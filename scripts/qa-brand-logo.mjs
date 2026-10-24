@@ -32,12 +32,20 @@ try {
       const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
       const context = canvas.getContext('2d'); context.drawImage(bitmap, 0, 0)
       const { data } = context.getImageData(0, 0, canvas.width, canvas.height)
-      let black = 0
-      for (let i = 0; i < data.length; i += 4) if (Math.max(data[i], data[i + 1], data[i + 2]) < 8) black++
-      return { black, corner: Array.from(data.slice(0, 3)) }
+      let black = 0, white = 0
+      for (let y = 1; y < canvas.height - 1; y++) for (let x = 1; x < canvas.width - 1; x++) {
+        const i = (y * canvas.width + x) * 4
+        if (Math.max(data[i], data[i + 1], data[i + 2]) < 8) black++
+        if (Math.min(data[i], data[i + 1], data[i + 2]) > 250) white++
+      }
+      return { black, white, corner: Array.from(data.slice(0, 3)) }
     }, snapshot.toString('base64'))
     const background = await page.locator('.sidebar').evaluate(element => getComputedStyle(element).backgroundColor.match(/\d+/g).slice(0, 3).map(Number))
-    assert(pixels.black > 80, 'Wordmark lettering must be black as requested')
+    if (['ink', 'plum', 'night'].includes(id)) {
+      assert(pixels.white > 80 && pixels.black < 10, 'Dark sidebars need solid white lettering without a black center or outline')
+    } else {
+      assert(pixels.black > 80 && pixels.white < 10, 'Light sidebars need solid black lettering without a white outline')
+    }
     assert(pixels.corner.every((channel, index) => Math.abs(channel - background[index]) <= 2), 'Lettering must blend into the existing sidebar without a background plate')
     await page.screenshot({ path: `/tmp/notebook-brand-${id}.png` })
   }
