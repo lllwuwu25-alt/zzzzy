@@ -12,6 +12,17 @@ input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
 .nav-selection{position:absolute;inset:0 0 auto;height:46px;z-index:0;border:1px solid #42717a;background:#1c4b54;border-radius:8px;transform:translateY(calc(var(--nav-index)*50px));transition:transform var(--motion-state) var(--ease-out)}
 .nav-collapse{position:absolute;right:14px;bottom:100px;color:#bcd0d3;width:32px;height:32px}.nav-collapse:hover{background:#ffffff12;color:var(--on-primary)}
 .local-note{padding:16px 10px 0;gap:9px}.local-note span{color:#bcd0d3}.local-note strong{font-weight:500}
+.sidebar{overflow-y:auto}
+.sidebar>.brand,.sidebar>nav{flex-shrink:0}
+.sidebar-footer{margin-top:auto;padding-top:24px;flex-shrink:0}
+.sidebar-footer .nav-collapse{position:static;margin:0 0 16px auto}
+.nav-collapsed .sidebar-footer .nav-collapse{margin-left:auto;margin-right:auto}
+.sidebar-footer .local-note{margin-top:0}
+/* Display the supplied square artwork through a wordmark-sized window; source pixels stay unchanged. */
+.brand-signature{position:relative;aspect-ratio:5/1;margin:18px 10px 0;overflow:hidden;border-radius:5px;background:#000}
+.brand-signature img{position:absolute;width:116%;max-width:none;height:auto;left:-8%;top:50%;transform:translateY(-48.8%);user-select:none;pointer-events:none}
+.nav-collapsed .brand-signature{display:none}
+@media(max-width:760px){.nav-collapsed .brand-signature{display:block}.sidebar-footer .nav-collapse{display:none}}
 .nav-collapsed .sidebar{width:72px}.nav-collapsed .workspace{padding-left:72px}.nav-collapsed .brand{padding:0 4px}.nav-collapsed .brand div,.nav-collapsed nav button>span,.nav-collapsed nav button>b,.nav-collapsed .local-note div{display:none}.nav-collapsed .sidebar nav button{justify-content:center;padding:0}.nav-collapsed .local-note{justify-content:center}.nav-collapsed .nav-collapse{right:20px}.nav-collapsed .brand-mark{width:40px;flex:0 0 40px}
 .topbar{height:72px;padding:0 30px;background:var(--panel);backdrop-filter:none}.topbar strong{font-size:15px;font-weight:600}.topbar span{font-size:11px;margin-top:3px;color:var(--muted)}
 main{min-height:calc(100vh - 72px)}.page{padding:32px;max-width:1500px;margin:auto}.page-heading{margin-bottom:26px}.page-heading h1{font-size:25px;font-weight:600}.page-heading p{font-size:13px;line-height:1.7}

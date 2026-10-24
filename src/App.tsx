@@ -1,4 +1,5 @@
 import {QuestionDiagrams} from './components/QuestionDiagrams'
+import commonkindLogo from './assets/commonkind-logo.png'
 import {QuestionTextField} from './components/QuestionTextField'
 import {questionSummary} from './lib/question-content'
 import { ReviewDeck } from './components/ReviewDeck'
@@ -117,7 +118,6 @@ export function App() {
       <a className="skip-link" href="#main">跳到主要内容</a>
       <aside className={`sidebar ${mobileNav ? 'open' : ''}`}>
         <div className="brand"><span className="brand-mark"><NotebookTabs size={22} /></span><div><strong>错题本</strong><small>本地学习工作台</small></div></div>
-        <button className="nav-collapse icon-button" aria-label={collapsed ? '展开导航' : '收起导航'} onClick={() => setCollapsed((v) => !v)}><Menu size={18} /></button>
         <nav aria-label="主要导航" style={{ '--nav-index': navigation.findIndex((entry) => entry.id === page) } as React.CSSProperties}><span className="nav-selection" aria-hidden="true" />
           {navigation.map(({ id, label, icon: Icon }) => (
             <button title={label} aria-label={label} key={id} className={page === id ? 'active' : ''} aria-current={page === id ? 'page' : undefined} onClick={() => { setPage(id); setMobileNav(false) }}>
@@ -125,7 +125,11 @@ export function App() {
             </button>
           ))}
         </nav>
-        <div className="local-note"><ShieldCheck size={16} /><div><strong>全部保存在本地</strong><span>离线优先 · AI 按需启用</span></div></div>
+        <div className="sidebar-footer">
+          <button className="nav-collapse icon-button" aria-label={collapsed ? '展开导航' : '收起导航'} onClick={() => setCollapsed((v) => !v)}><Menu size={18} /></button>
+          <div className="local-note"><ShieldCheck size={16} /><div><strong>全部保存在本地</strong><span>离线优先 · AI 按需启用</span></div></div>
+          <div className="brand-signature" title="CommonKind · 品牌标识"><img src={commonkindLogo} alt="CommonKind" width={1254} height={1254} draggable={false} /></div>
+        </div>
       </aside>
       {mobileNav && <button className="scrim" aria-label="关闭导航" onClick={() => setMobileNav(false)} />}
       <section className="workspace">
