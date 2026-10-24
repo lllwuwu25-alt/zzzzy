@@ -17,3 +17,4 @@ src-tauri/gen/
 *.vault.json.*
 license-private/
 *.ctb-license.json
+local-deliverables/
