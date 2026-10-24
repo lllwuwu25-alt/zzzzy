@@ -20,8 +20,9 @@ input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
 .sidebar-footer .local-note{margin-top:0}
 /* Display the supplied square artwork through a wordmark-sized window; source pixels stay unchanged. */
 .brand-signature{position:relative;aspect-ratio:5/1;margin:18px 10px 0;overflow:hidden;background:transparent}
-.brand-signature img{position:absolute;width:116%;max-width:none;height:auto;left:-8%;top:50%;transform:translateY(-48.8%);filter:grayscale(1) contrast(3);mix-blend-mode:screen;user-select:none;pointer-events:none}
-:root:is([data-theme=mist],[data-theme=paint]) .brand-signature img{filter:invert(1) grayscale(1) contrast(3);mix-blend-mode:multiply}
+.brand-filter{position:absolute;pointer-events:none}
+.brand-signature img{position:absolute;width:116%;max-width:none;height:auto;left:-8%;top:50%;transform:translateY(-48.8%);filter:url(#commonkind-cutout);user-select:none;pointer-events:none}
+:root:is([data-theme=mist],[data-theme=paint]) .brand-signature img{filter:url(#commonkind-cutout) brightness(0)}
 .nav-collapsed .brand-signature{display:none}
 @media(max-width:760px){.nav-collapsed .brand-signature{display:block}.sidebar-footer .nav-collapse{display:none}}
 .nav-collapsed .sidebar{width:72px}.nav-collapsed .workspace{padding-left:72px}.nav-collapsed .brand{padding:0 4px}.nav-collapsed .brand div,.nav-collapsed nav button>span,.nav-collapsed nav button>b,.nav-collapsed .local-note div{display:none}.nav-collapsed .sidebar nav button{justify-content:center;padding:0}.nav-collapsed .local-note{justify-content:center}.nav-collapsed .nav-collapse{right:20px}.nav-collapsed .brand-mark{width:40px;flex:0 0 40px}

@@ -8,3 +8,10 @@
 - `node scripts/qa-themes.mjs`: five skins / eight surfaces passed contrast, persistence, keyboard, reduced motion, narrow/200% layout and original-image preservation checks.
 - `npm test`: 71 Vitest + 10 Node tests passed. `npm run build` and `git diff --check` passed. The existing production chunk-size warning remains.
 - Chrome screenshots for plum and mist visually inspected. Only local preview/source changed; no packaging or publishing.
+
+## Follow-up: dark rectangle during logo fade
+
+- Reproduced a distinct rendering issue not covered by geometry-only frame checks: at opacity 0.378, the ink-theme logo corner became RGB 10/29/33 instead of the sidebar's 16/47/53. The opacity group isolated the blend operation, revealing the opaque source background during the fade.
+- Replaced screen/multiply blending with a small SVG filter that derives actual alpha from the supplied wordmark. Light themes apply brightness(0) after alpha extraction; dark themes retain white. No outline or background plate is generated.
+- `qa-brand-fade.mjs` fails against the blending implementation and passes after the fix. It freezes three intermediate transition times in each of five themes (15 frames), checking screenshot background pixels instead of only final styles or layout.
+- Re-ran the existing brand pixel/position/hash checks, sidebar motion/rapid/keyboard/reduced-motion checks, complete JS tests and production web build. Original image remains unchanged.

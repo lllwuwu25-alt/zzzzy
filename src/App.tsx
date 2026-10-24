@@ -128,7 +128,15 @@ export function App() {
         <div className="sidebar-footer">
           <button className="nav-collapse icon-button" aria-label={collapsed ? '展开导航' : '收起导航'} onClick={() => setCollapsed((v) => !v)}><Menu size={18} /></button>
           <div className="local-note"><ShieldCheck size={16} /><div><strong>全部保存在本地</strong><span>离线优先 · AI 按需启用</span></div></div>
-          <div className="brand-signature" title="CommonKind · 品牌标识"><img src={commonkindLogo} alt="CommonKind" width={1254} height={1254} draggable={false} /></div>
+          <div className="brand-signature" title="CommonKind · 品牌标识">
+            <svg className="brand-filter" width="0" height="0" aria-hidden="true" focusable="false">
+              <defs><filter id="commonkind-cutout" x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
+                <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  .2126 .7152 .0722 0 0" />
+                <feComponentTransfer><feFuncA type="linear" slope="3" intercept="-.8" /></feComponentTransfer>
+              </filter></defs>
+            </svg>
+            <img src={commonkindLogo} alt="CommonKind" width={1254} height={1254} draggable={false} />
+          </div>
         </div>
       </aside>
       {mobileNav && <button className="scrim" aria-label="关闭导航" onClick={() => setMobileNav(false)} />}
