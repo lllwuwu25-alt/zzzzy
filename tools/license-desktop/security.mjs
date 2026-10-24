@@ -42,3 +42,26 @@ export function safeError(error) {
   if (error?.code || typeof error?.message !== 'string' || !/[\u3400-\u9fff]/u.test(error.message)) return '本地文件操作失败，请检查文件权限、剩余空间和保存位置后重试。已记账的授权可用同一机器码重新导出。'
   return error.message.slice(0, 600)
 }
+
+export function secureWindowOptions(preload) {
+  return { width: 1080, height: 760, minWidth: 640, minHeight: 520, backgroundColor: '#f3f7f8', show: false,
+    webPreferences: { preload, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, allowRunningInsecureContent: false, webviewTag: false, devTools: false },
+  }
+}
+export function hardenContents(contents, expectedUrl) {
+  contents.on('will-navigate', event => event.preventDefault())
+  contents.on('will-redirect', event => event.preventDefault())
+  contents.on('will-attach-webview', event => event.preventDefault())
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  contents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
+  contents.session.setPermissionCheckHandler(() => false)
+  const assets = new Set(['index.html', 'app.js', 'styles.css'].map(file => new URL(file, expectedUrl).href))
+  contents.session.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !assets.has(details.url) }))
+}
+export async function dispatchCall(service, method, args, sender) {
+  try {
+    if (!isTrustedSender(sender)) throw Error('此窗口无权操作保险库')
+    validateCall(method, args)
+    return { ok: true, value: await service[method](args) }
+  } catch (error) { return { ok: false, error: safeError(error) } }
+}

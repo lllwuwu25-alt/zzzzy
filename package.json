@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run && npm run test:license",
-    "test:license": "node --test tools/license-admin/*.test.mjs",
+    "test:license": "node --test tools/license-admin/*.test.mjs tools/license-desktop/*.test.mjs",
     "license:admin": "node tools/license-admin/cli.mjs",
+    "license:desktop": "npm --prefix tools/license-desktop start",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"

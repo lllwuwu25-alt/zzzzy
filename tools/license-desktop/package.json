@@ -1,0 +1,10 @@
+{
+  "name": "mistake-notebook-issuer",
+  "productName": "错题本发码器",
+  "version": "0.1.10",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": { "start": "electron ." },
+  "devDependencies": { "electron": "45.0.0" }
+}
