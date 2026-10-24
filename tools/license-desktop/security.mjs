@@ -65,3 +65,9 @@ export async function dispatchCall(service, method, args, sender) {
     return { ok: true, value: await service[method](args) }
   } catch (error) { return { ok: false, error: safeError(error) } }
 }
+
+export function applicationProtectedRoots({ appPath, resourcesPath, executablePath, isPackaged, repositoryRoot }) {
+  const executableDirectory = dirname(executablePath), contents = dirname(executableDirectory)
+  const installation = basename(contents) === 'Contents' && basename(dirname(contents)).endsWith('.app') ? dirname(contents) : executableDirectory
+  return [...new Set([appPath, resourcesPath, installation, ...(!isPackaged && repositoryRoot ? [repositoryRoot] : [])])]
+}

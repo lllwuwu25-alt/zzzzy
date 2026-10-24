@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createIssuerService } from './service.mjs'
-import { METHODS, secureWindowOptions, hardenContents, dispatchCall } from './security.mjs'
+import { METHODS, secureWindowOptions, hardenContents, dispatchCall, applicationProtectedRoots } from './security.mjs'
 
 app.setName('错题本发码器')
 if (!app.commandLine.hasSwitch('user-data-dir')) app.setPath('userData', join(app.getPath('appData'), 'local.mistake.notebook.issuer'))
@@ -19,7 +19,7 @@ else {
     return result.canceled ? null : result.filePath
   }
   service = createIssuerService({
-    protectedRoots: [app.getAppPath(), process.resourcesPath, ...(app.isPackaged ? [] : [resolve(import.meta.dirname, '../..')])],
+    protectedRoots: applicationProtectedRoots({ appPath: app.getAppPath(), resourcesPath: process.resourcesPath, executablePath: process.execPath, isPackaged: app.isPackaged, repositoryRoot: resolve(import.meta.dirname, '../..') }),
     dialogs: {
       chooseOutput,
       async chooseVault({ create }) {

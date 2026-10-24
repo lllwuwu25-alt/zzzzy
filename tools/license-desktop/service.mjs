@@ -16,7 +16,11 @@ function writeNew(path, contents) {
   try {
     fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600)
     writeFileSync(fd, bytes); fsyncSync(fd); closeSync(fd); fd = undefined
-    linkSync(temporary, path)
+    try { linkSync(temporary, path) }
+    catch (error) {
+      if (['ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'].includes(error.code)) throw Error('目标磁盘不支持安全的原子导出（如部分 exFAT/FAT32 移动盘）。请先保存到本机磁盘，再用 Finder 或资源管理器复制到备份介质；原保险库与已有文件未被覆盖。')
+      throw error
+    }
     unlinkSync(temporary)
     if (process.platform !== 'win32') {
       const directory = openSync(dirname(path), 'r')

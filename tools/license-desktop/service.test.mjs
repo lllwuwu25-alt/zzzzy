@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { IssuerVault, machineCode } from '../license-admin/core.mjs'
 import { createIssuerService } from './service.mjs'
+import fs from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 
 const cleanup = [], password = 'synthetic-UI-test-password-only'
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn() })
@@ -131,4 +133,21 @@ test('queued lock cannot race an outstanding signature or leave the vault open',
   await assert.rejects(service.createPurchase({ label: 'locked' }), /打开|解锁/)
   const reopened = IssuerVault.open(paths.vault, password)
   try { assert.equal(reopened.list()[0].active.length, 1) } finally { reopened.close() }
+})
+
+test('unsupported-link media gives a usable local-save-and-copy workflow without partial backup', async () => {
+  const { service, paths, directory } = await unlocked()
+  const original = fs.linkSync, before = readFileSync(paths.vault, 'utf8')
+  paths.output = join(directory, 'external-backup.vault.json')
+  try {
+    fs.linkSync = () => { const error = Error('unsupported'); error.code = 'ENOTSUP'; throw error }
+    syncBuiltinESMExports()
+    await assert.rejects(service.backupVault(), /先.*本机.*复制/)
+    assert(!existsSync(paths.output))
+    assert(!fs.readdirSync(directory).some(name => name.endsWith('.tmp')))
+    assert.equal(readFileSync(paths.vault, 'utf8'), before)
+  } finally { fs.linkSync = original; syncBuiltinESMExports() }
+  paths.output = join(directory, 'local-backup.vault.json')
+  await service.backupVault()
+  assert.equal(readFileSync(paths.output, 'utf8'), before)
 })

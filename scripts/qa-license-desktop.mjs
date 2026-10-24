@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { resolve, join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import assert from 'node:assert/strict'
 import { IssuerVault, machineCode } from '../tools/license-admin/core.mjs'
@@ -47,6 +47,15 @@ try {
     assert(!existsSync(vaultPath))
     await page.getByLabel('设置密码', { exact: true }).fill(password)
     await page.getByLabel('再次输入密码', { exact: true }).fill(password)
+    if (process.env.CTB_ISSUER_EXECUTABLE) {
+      const forbidden = join(dirname(dirname(dirname(executablePath))), 'qa-issuer-must-not-create.vault.json')
+      await saveTo(forbidden)
+      await page.getByRole('button', { name: '选择位置并创建', exact: true }).click()
+      await page.getByRole('alert').filter({ hasText: /位置|目录/ }).waitFor()
+      assert(!existsSync(forbidden))
+      await page.getByLabel('设置密码', { exact: true }).fill(password)
+      await page.getByLabel('再次输入密码', { exact: true }).fill(password)
+    }
     await saveTo(vaultPath)
     await page.getByRole('button', { name: '选择位置并创建', exact: true }).click()
     await page.getByRole('heading', { name: '购买记录', exact: true }).waitFor()

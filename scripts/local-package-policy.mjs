@@ -1,5 +1,5 @@
-import { mkdtempSync, rmSync, readdirSync, lstatSync, readFileSync, statfsSync, cpSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { mkdtempSync, rmSync, readdirSync, lstatSync, readFileSync, statfsSync, cpSync, mkdirSync, existsSync, renameSync } from 'node:fs'
+import { join, relative, basename } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
 import { IssuerVault } from '../tools/license-admin/core.mjs'
@@ -25,6 +25,22 @@ export async function withTestSigner(callback) {
     vault = IssuerVault.create(join(directory, 'synthetic.vault.json'), randomBytes(32).toString('base64url'))
     return await callback({ directory, vault, publicKeyHex: vault.publicConfig().publicKeyHex })
   } finally { vault?.close(); rmSync(directory, { recursive: true, force: true }) }
+}
+export async function withStagedCohort({ output, folderName, requiredFiles }, prepare) {
+  const names = [folderName, ...requiredFiles]
+  if (names.some(name => !name || basename(name) !== name || ['.', '..'].includes(name))) throw Error('交付文件名不正确')
+  mkdirSync(output, { recursive: true })
+  const target = join(output, folderName)
+  if (existsSync(target)) throw Error('完整测试交付文件夹已存在，不会覆盖。请保留或移动整套旧文件后重试。')
+  const stage = mkdtempSync(join(output, '.ctb-cohort-'))
+  try {
+    await prepare(stage)
+    for (const name of requiredFiles) if (!existsSync(join(stage, name))) throw Error('交付文件未准备完整，没有发布测试包')
+    if (existsSync(target)) throw Error('交付文件夹已存在，没有覆盖')
+    // One same-filesystem directory rename publishes app + certificate + audit together.
+    renameSync(stage, target)
+    return target
+  } finally { rmSync(stage, { recursive: true, force: true }) }
 }
 export function auditResources(root, kind) {
   const files = []

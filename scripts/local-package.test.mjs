@@ -1,9 +1,10 @@
 import { test } from 'node:test'
+import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync, readlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { makeTestConfig, withTestSigner, preflightSpace, auditResources, ISSUER_FILES, copyBundle } from './local-package-policy.mjs'
+import { makeTestConfig, withTestSigner, preflightSpace, auditResources, ISSUER_FILES, copyBundle, withStagedCohort } from './local-package-policy.mjs'
 
 test('test configuration isolates app name/data and never modifies formal trust', () => {
   const formalFile = new URL('../src-tauri/license-public-key.json', import.meta.url)
@@ -58,4 +59,30 @@ test('copied macOS bundle preserves relative framework links and works without s
     assert.equal(readlinkSync(join(destination, 'Framework/binary')), 'Versions/Current/binary')
     assert.equal(readFileSync(join(destination, 'Framework/binary'), 'utf8'), 'synthetic framework')
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('late package failure never publishes an app without its matching activation cohort', async () => {
+  const output = mkdtempSync(join(tmpdir(), 'ctb-cohort-fail-'))
+  try {
+    await assert.rejects(withStagedCohort({ output, folderName: 'test-v1', requiredFiles: ['buyer.app', 'certificate.json', 'audit.json'] }, async stage => {
+      mkdirSync(join(stage, 'buyer.app')); writeFileSync(join(stage, 'certificate.json'), 'new matching certificate')
+      throw Error('late failure')
+    }), /late failure/)
+    assert(!existsSync(join(output, 'test-v1')))
+    assert.deepEqual(fs.readdirSync(output), [])
+    await withStagedCohort({ output, folderName: 'test-v1', requiredFiles: ['buyer.app', 'certificate.json', 'audit.json'] }, async stage => {
+      mkdirSync(join(stage, 'buyer.app')); writeFileSync(join(stage, 'certificate.json'), 'matching certificate'); writeFileSync(join(stage, 'audit.json'), '{}')
+    })
+    assert.equal(readFileSync(join(output, 'test-v1/certificate.json'), 'utf8'), 'matching certificate')
+  } finally { rmSync(output, { recursive: true, force: true }) }
+})
+test('existing activation cohort stops before running an expensive build and preserves previous files', async () => {
+  const output = mkdtempSync(join(tmpdir(), 'ctb-cohort-existing-'))
+  try {
+    mkdirSync(join(output, 'test-v1')); writeFileSync(join(output, 'test-v1/certificate.json'), 'old certificate')
+    let started = false
+    await assert.rejects(withStagedCohort({ output, folderName: 'test-v1', requiredFiles: ['buyer.app', 'certificate.json'] }, async () => { started = true }), /存在/)
+    assert.equal(started, false)
+    assert.equal(readFileSync(join(output, 'test-v1/certificate.json'), 'utf8'), 'old certificate')
+  } finally { rmSync(output, { recursive: true, force: true }) }
 })

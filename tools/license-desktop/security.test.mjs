@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, symlinkSync, rmSync, readFileSync } from 'node:
 import { runInNewContext } from 'node:vm'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { validateCall, isTrustedSender, assertSafeDestination, secureWindowOptions, hardenContents, dispatchCall } from './security.mjs'
+import { validateCall, isTrustedSender, assertSafeDestination, secureWindowOptions, hardenContents, dispatchCall, applicationProtectedRoots } from './security.mjs'
 
 test('rejects extra IPC properties, unbounded strings and untrusted senders', () => {
   assert.doesNotThrow(() => validateCall('issue', { purchaseCode: 'CTB-test', machineCode: 'CTB1-test', label: '' }))
@@ -72,4 +72,16 @@ test('preload exposes only business operations and fixes each IPC channel', asyn
     assert.equal(result.channel, `issuer:${name}`)
   }
   assert.equal(bridge.invoke, undefined); assert.equal(bridge.readFile, undefined)
+})
+
+test('packaged protection covers bundle root and executable directory, including aliases', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ctb-bundle-protect-'))
+  try {
+    const bundle = join(root, 'Issuer.app'), resources = join(bundle, 'Contents/Resources')
+    mkdirSync(resources, { recursive: true }); mkdirSync(join(bundle, 'Contents/MacOS'))
+    symlinkSync(bundle, join(root, 'alias.app'))
+    const protectedRoots = applicationProtectedRoots({ appPath: join(resources, 'app'), resourcesPath: resources, executablePath: join(bundle, 'Contents/MacOS/Issuer'), isPackaged: true, repositoryRoot: root })
+    for (const rel of ['Issuer.app/issuer.vault.json', 'Issuer.app/Contents/MacOS/issuer.vault.json', 'alias.app/issuer.vault.json']) assert.throws(() => assertSafeDestination(join(root, rel), protectedRoots), /位置|目录/)
+    assert.doesNotThrow(() => assertSafeDestination(join(root, 'outside.vault.json'), protectedRoots))
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
