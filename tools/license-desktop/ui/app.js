@@ -47,7 +47,15 @@ async function call(method, args, options = {}) {
     if (options.after) options.after(result.value)
     if (options.render !== false) render()
     notice(result.value.outputPath ? `已保存：${result.value.outputPath}` : (options.message || '操作已完成。'))
-  } catch (failure) { notice(failure.message || '操作未完成，请重试。', true) }
+  } catch (failure) {
+    // A certificate can already be committed even when its output file failed.
+    // Show the durable ledger, so recovery is possible through “重新导出”.
+    try {
+      const current = await window.issuer.snapshot()
+      if (current.ok && JSON.stringify(current.value) !== JSON.stringify(state)) { state = current.value; render() }
+    } catch { /* Preserve the original actionable error if a vault requires reopening. */ }
+    notice(failure.message || '操作未完成，请重试。', true)
+  }
   finally { setBusy(false) }
 }
 document.addEventListener('click', event => {
