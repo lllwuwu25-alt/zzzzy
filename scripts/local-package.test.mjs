@@ -56,7 +56,8 @@ test('copied macOS bundle preserves relative framework links and works without s
     symlinkSync('Versions/Current/binary', join(source, 'Framework/binary'))
     copyBundle(source, destination)
     rmSync(source, { recursive: true })
-    assert.equal(readlinkSync(join(destination, 'Framework/binary')), 'Versions/Current/binary')
+    // Windows readlink normalizes separators even when the relative link is preserved.
+    assert.equal(readlinkSync(join(destination, 'Framework/binary')).replaceAll('\\', '/'), 'Versions/Current/binary')
     assert.equal(readFileSync(join(destination, 'Framework/binary'), 'utf8'), 'synthetic framework')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

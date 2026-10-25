@@ -120,7 +120,7 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - name: Verify all three installers are in the release draft
@@ -146,6 +146,12 @@ jobs:
               if (!assets.some(asset => asset.name === name && asset.state === 'uploaded' && asset.size > 0)) {
                 throw new Error(`安装包缺失或上传不完整：${name}`)
               }
+            }
+            if (release.draft && release.target_commitish !== context.sha) {
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner, repo: context.repo.repo,
+                release_id: release.id, target_commitish: context.sha,
+              })
             }
             await core.summary.addHeading(`错题本 v${version} 三平台安装包已齐备`)
               .addList(names).addLink('查看安装包草稿（需仓库权限）', release.html_url).write()
