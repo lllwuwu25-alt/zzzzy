@@ -198,13 +198,27 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(ai::Requests::default())
         .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images, license::get_license_status, license::import_license, exports::export_license_request, exports::export_notebook_backup, ai_settings::get_ai_settings, ai_settings::save_ai_settings, ai_settings::delete_ai_key, ai::recognize_ai_question, ai::cancel_ai_request, ai::test_ai_connection])
-        .run(tauri::generate_context!())
+        .run(app_context())
         .expect("error while running mistake notebook");
 }
+
+fn app_context() -> tauri::Context<tauri::Wry> { tauri::generate_context!() }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packaged_main_window_can_subscribe_and_release_native_drop_events() {
+        let mut context = app_context();
+        let authority = context.runtime_authority_mut();
+        for command in ["plugin:event|listen", "plugin:event|unlisten"] {
+            assert!(authority.resolve_access(command, "main", "main", &tauri::ipc::Origin::Local).is_some(), "main window is missing {command}");
+            assert!(authority.resolve_access(command, "other", "other", &tauri::ipc::Origin::Local).is_none());
+            assert!(authority.resolve_access(command, "main", "main", &tauri::ipc::Origin::Remote { url: "https://example.com".parse().unwrap() }).is_none());
+        }
+        assert!(authority.resolve_access("plugin:event|emit", "main", "main", &tauri::ipc::Origin::Local).is_none());
+    }
 
     #[test]
     fn dropped_images_accept_png_and_skip_other_files() {

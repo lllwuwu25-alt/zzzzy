@@ -12,6 +12,8 @@ a{color:var(--accent-text)}
 .sidebar nav button{color:var(--sidebar-muted)}
 .sidebar nav button.active{color:var(--sidebar-ink);background:transparent}
 .sidebar nav button:not(:disabled):hover,.nav-collapse:hover{color:var(--sidebar-ink);background:var(--sidebar-hover)}
+/* The selected fill/border lives behind the button; an opaque hover fill would cover its edges. */
+.sidebar nav button.active:not(:disabled):hover{background:transparent}
 .nav-selection{background:var(--sidebar-selected);border-color:var(--sidebar-border)}
 .sidebar nav button b{background:var(--selected);color:var(--accent-text)}
 .button.primary,.catalog-add .confirm-add,.catalog-add .confirm-add:hover:not(:disabled),.toast,.success-toast{color:var(--on-primary);background:var(--primary);border-color:var(--primary)}

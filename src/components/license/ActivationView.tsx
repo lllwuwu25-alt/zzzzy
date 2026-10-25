@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Copy, Download, FileKey2, NotebookTabs, RefreshCw, ShieldCheck, Upload } from 'lucide-react'
 import { activateLicense, saveActivationRequest, licenseLabel, MAX_LICENSE_BYTES, type LicenseStatus } from '../../lib/license'
 import { ActionButton } from '../ActionButton'
+import customerWechatQr from '../../assets/customer-wechat-qr.png'
 import './license.css'
 
 export function ActivationView({ status, onActivated, onReadonly, onRetry, onBack }: { status: LicenseStatus; onActivated: (status: LicenseStatus) => void; onReadonly: () => void; onRetry: () => Promise<void>; onBack?: () => void }) {
@@ -10,7 +11,7 @@ export function ActivationView({ status, onActivated, onReadonly, onRetry, onBac
   const preview = status.state === 'preview' || status.state === 'development'
   async function exportRequest() {
     setBusy(true); setError(''); setNotice('')
-    try { const path = await saveActivationRequest(status); if (path) setNotice('激活申请已导出，请发送给卖家。') }
+    try { const path = await saveActivationRequest(status); if (path) setNotice('激活申请已导出，请通过客服微信发送。') }
     catch (caught) { setError(typeof caught === 'string' ? caught : caught instanceof Error ? caught.message : '未能导出申请，请检查保存位置。') }
     finally { setBusy(false) }
   }
@@ -35,7 +36,7 @@ export function ActivationView({ status, onActivated, onReadonly, onRetry, onBac
           <label htmlFor="activation-machine">本机机器码</label>
           <textarea id="activation-machine" ref={code} readOnly value={status.machineCode || ''} placeholder={preview ? '网页预览不生成真实机器码' : '暂时无法读取，请检查权限后重试'} spellCheck={false}/>
           <div className="button-row">
-            <button className="button ghost compact" disabled={!status.machineCode || busy} onClick={async () => { try { await navigator.clipboard.writeText(status.machineCode!); setNotice('机器码已复制，可发送给卖家。') } catch { code.current?.focus(); code.current?.select(); setNotice('已选中机器码，请按 ⌘C 或 Ctrl+C 复制。') } }}><Copy size={14}/>复制机器码</button>
+            <button className="button ghost compact" disabled={!status.machineCode || busy} onClick={async () => { try { await navigator.clipboard.writeText(status.machineCode!); setNotice('机器码已复制，请发送给微信客服。') } catch { code.current?.focus(); code.current?.select(); setNotice('已选中机器码，请按 ⌘C 或 Ctrl+C 复制。') } }}><Copy size={14}/>复制机器码</button>
             <button className="button ghost compact" disabled={!status.machineCode || busy} onClick={() => void exportRequest()}><Download size={14}/>导出激活申请</button>
           </div>
           <small>仅包含经过哈希处理的设备标识，不含题目或原始硬件编号。</small>
@@ -53,10 +54,17 @@ export function ActivationView({ status, onActivated, onReadonly, onRetry, onBac
         </div>
       </section>
       <aside className="license-explanation" aria-label="离线激活说明">
-        <h2>只需这一次</h2>
-        <ol><li><strong>发送机器码</strong><p>把本机机器码或激活申请文件，连同购买信息一起发给卖家。</p></li><li><strong>收到设备授权</strong><p>每份购买授权最多签发两台设备。同一设备重新导出不占新名额。</p></li><li><strong>导入，开始学习</strong><p>导入卖家发来的授权文件。校验在本机完成，不会上传错题。</p></li></ol>
+        <section className="license-support" aria-labelledby="customer-service-title">
+          <h2 id="customer-service-title">添加客服微信</h2>
+          <figure>
+            <img src={customerWechatQr} alt="客服微信二维码" width={776} height={790} draggable={false}/>
+            <figcaption>微信扫一扫，添加客服</figcaption>
+          </figure>
+          <p>将机器码发给客服，获取授权文件</p>
+        </section>
+        <ol><li><strong>发送机器码</strong><p>点击左侧「复制机器码」，连同购买信息一起发送给微信客服。也可以发送导出的激活申请。</p></li><li><strong>收到授权文件</strong><p>每份购买授权最多签发两台设备。同一设备重新导出不占新名额。</p></li><li><strong>导入，开始学习</strong><p>点击「导入授权文件」，选择客服发来的文件。校验在本机完成，不会上传错题。</p></li></ol>
         <div className="license-data-safe"><ShieldCheck size={18}/><div><strong>你的资料始终属于你</strong><p>即使暂时无法激活，也不会删除已有错题。你仍然可以查看与导出。</p><button className="button ghost" onClick={onReadonly}>查看与导出已有资料</button></div></div>
-        <p className="license-replacement-note">换电脑请联系卖家人工处理。离线旧授权无法被远程撤销。</p>
+        <p className="license-replacement-note">换电脑请联系微信客服人工处理。离线旧授权无法被远程撤销。</p>
       </aside>
     </div>
   </main>

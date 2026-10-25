@@ -3,6 +3,8 @@ name: Build desktop installers
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "codex/package-v0.1.11"
     tags:
       - "v*"
 
@@ -15,11 +17,14 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: --target aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles dmg
+            assetSuffix: macOS-AppleSilicon-arm64
           - platform: macos-latest
-            args: --target x86_64-apple-darwin
+            args: --target x86_64-apple-darwin --bundles dmg
+            assetSuffix: macOS-Intel-x64
           - platform: windows-latest
             args: --config src-tauri/tauri.windows.conf.json
+            assetSuffix: Windows-x64
 
     runs-on: ${{ matrix.platform }}
 
@@ -39,8 +44,6 @@ jobs:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Require offline license public key
-        env:
-          NOTEBOOK_LICENSE_PUBLIC_KEY: ${{ vars.NOTEBOOK_LICENSE_PUBLIC_KEY }}
         run: node scripts/check-license-config.mjs --github-env
 
       - name: Cache Rust build
@@ -69,25 +72,30 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
+          releaseCommitish: ${{ github.sha }}
           releaseName: 错题本 v__VERSION__
           releaseBody: |
             ## 普通用户下载哪个文件？
 
             | 你的设备 | 下载文件名中带有 | 文件类型 |
             | --- | --- | --- |
-            | Mac，Apple M1 / M2 / M3 / M4 芯片 | `aarch64` | `.dmg` |
-            | Mac，Intel 芯片 | `x64` 或 `x86_64` | `.dmg` |
-            | Windows 10 / 11 | `x64-setup` | `.exe` |
+            | Mac，Apple M 系列芯片 | `macOS-AppleSilicon-arm64` | `.dmg` |
+            | Mac，Intel 芯片 | `macOS-Intel-x64` | `.dmg` |
+            | Windows 10 / 11 | `Windows-x64-setup` | `.exe` |
             **只想安装应用时，不要下载 `.tar.gz`、`.sig` 或源码压缩包。** 这些是自动更新、校验或开发用途的文件，不是普通安装包。
 
             本版需导入卖家签发的设备授权文件，激活后永久离线使用。每笔购买最多签发两台设备；未激活仍可查看与导出已有资料。不要向他人发送保险库或密码。
 
-            不清楚 Mac 的芯片类型？点击屏幕左上角苹果菜单 → “关于本机”：看到“芯片 Apple M…”就下载 `aarch64.dmg`；看到“处理器 Intel…”就下载 `x64.dmg`。
+            不清楚 Mac 的芯片类型？点击屏幕左上角苹果菜单 → “关于本机”：看到“芯片 Apple M…”就下载 AppleSilicon-arm64；看到“处理器 Intel…”就下载 Intel-x64。
 
             macOS 当前使用测试签名。首次打开若被系统拦截，请进入“系统设置 → 隐私与安全性”，找到错题本并选择“仍要打开”。
 
             更完整的说明见仓库中的 [下载与安装说明](https://github.com/lllwuwu25-alt/zzzzy/blob/main/DOWNLOAD.md)。
           releaseDraft: true
+          releaseAssetNamePattern: MistakeNotebook-[version]-${{ matrix.assetSuffix }}[setup][ext]
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: MistakeNotebook-[version]-${{ matrix.assetSuffix }}-[bundle]
+          uploadUpdaterJson: false
           generateReleaseNotes: true
           prerelease: false
           args: ${{ matrix.args }}
@@ -108,9 +116,43 @@ jobs:
             throw "Expected Windows GUI subsystem (2), got $subsystem"
           }
 
-  publish:
+  verify-installers:
     needs: release
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify all three installers are in the release draft
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const version = JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner: context.repo.owner, repo: context.repo.repo, per_page: 100,
+            })
+            const release = releases.find(candidate => candidate.tag_name === `v${version}`)
+            if (!release) throw new Error(`未找到 v${version} 安装包草稿`)
+            if (context.ref.startsWith('refs/heads/') && !release.draft) throw new Error('打包分支不得公开发布安装包')
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, {
+              owner: context.repo.owner, repo: context.repo.repo, release_id: release.id, per_page: 100,
+            })
+            const names = [
+              `MistakeNotebook-${version}-macOS-Intel-x64.dmg`,
+              `MistakeNotebook-${version}-macOS-AppleSilicon-arm64.dmg`,
+              `MistakeNotebook-${version}-Windows-x64-setup.exe`,
+            ]
+            for (const name of names) {
+              if (!assets.some(asset => asset.name === name && asset.state === 'uploaded' && asset.size > 0)) {
+                throw new Error(`安装包缺失或上传不完整：${name}`)
+              }
+            }
+            await core.summary.addHeading(`错题本 v${version} 三平台安装包已齐备`)
+              .addList(names).addLink('查看安装包草稿（需仓库权限）', release.html_url).write()
+
+  publish:
+    needs: [release, verify-installers]
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success' && needs.verify-installers.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write

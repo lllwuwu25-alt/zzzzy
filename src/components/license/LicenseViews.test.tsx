@@ -21,3 +21,11 @@ it('never renders mutation controls in the unlicensed notebook viewer', () => {
   expect(html).not.toContain('保存修改')
   expect(html).not.toContain('显示答案')
 })
+it('lets buyers find customer service before sending their machine code', () => {
+  const html = renderToStaticMarkup(<ActivationView status={status} onActivated={() => {}} onReadonly={() => {}} onRetry={async () => {}} />)
+  expect(html).toContain('alt="客服微信二维码"')
+  expect(html).toContain('添加客服微信')
+  expect(html).toContain('将机器码发给客服，获取授权文件')
+  expect(html).toContain('复制机器码')
+  expect(html).toContain('导入授权文件')
+})

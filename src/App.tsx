@@ -4,6 +4,7 @@ import {QuestionTextField} from './components/QuestionTextField'
 import {questionSummary} from './lib/question-content'
 import { ReviewDeck } from './components/ReviewDeck'
 import { getMotionPreference } from './lib/preferences'
+import { startDesktopDropListener } from './lib/desktop-drop'
 import { Organizer } from './components/Organizer'
 import { SettingsPage } from './components/SettingsPage'
 import { Field, Empty, ImageStrip, TaxonomySelect, fileToAsset, dataUrlToAsset, isSupportedImageFile, readableError } from './components/shared'
@@ -90,9 +91,10 @@ export function App() {
   useEffect(() => {
     if (!isTauri()) return
     let mounted = true
-    let dispose: (() => void) | undefined
-    void import('@tauri-apps/api/webview').then(async ({ getCurrentWebview }) => {
-      dispose = await getCurrentWebview().onDragDropEvent(async ({ payload }) => {
+    const stop = startDesktopDropListener(async handler => {
+      const { getCurrentWebview } = await import('@tauri-apps/api/webview')
+      return getCurrentWebview().onDragDropEvent(({ payload }) => handler(payload))
+    }, async payload => {
         if (!mounted) return
         if (payload.type === 'enter' || payload.type === 'over') setDragActive(true)
         if (payload.type === 'leave') setDragActive(false)
@@ -106,11 +108,11 @@ export function App() {
             setCaptureNotice(readableError(error, '无法读取拖入的图片，请确认文件仍在原位置并重试。'))
           } finally { setCaptureBusy(false) }
         }
-      })
-    }).catch(() => {
-      if (mounted) setCaptureNotice('拖入功能没有成功启动，请重新打开应用后重试。')
+    }, error => {
+      console.error('Native image drop listener failed:', error)
+      if (mounted) setCaptureNotice('图片拖入暂不可用，请先点击「收录截图」选择图片；如持续出现，请联系客户服务。')
     })
-    return () => { mounted = false; dispose?.() }
+    return () => { mounted = false; stop() }
   }, [captureAssets])
 
   return (
