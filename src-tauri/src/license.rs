@@ -163,6 +163,9 @@ pub(crate) fn enforce_write(can_write: bool) -> Result<(), String> {
 #[tauri::command]
 pub fn get_license_status(app: tauri::AppHandle) -> LicenseStatus { status(&app) }
 fn status(app: &tauri::AppHandle) -> LicenseStatus {
+    if super::android::is_test(app) {
+        return LicenseStatus { state: "development", can_write: true, machine_code: None, platform: "android", purchase_code: None, license_id: None, message: "安卓独立测试版：仅供测试，不代表商业购买授权；云端访问仍需飞书登录与设备确认。".into() };
+    }
     let device = identity();
     let mut status = LicenseStatus { state: "unactivated", can_write: false, machine_code: device.as_ref().ok().map(|device| machine_code(device)), platform: std::env::consts::OS, purchase_code: None, license_id: None, message: "尚未激活。请把机器码发给卖家，获取本机永久离线授权。".into() };
     let configured = env!("NOTEBOOK_LICENSE_PUBLIC_KEY");

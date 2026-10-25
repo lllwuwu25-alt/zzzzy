@@ -122,4 +122,8 @@ export type Notebook = {
   workspaceName: string
   workspacePath?: string
   workspaceUpdatedAt?: string
+  /** Local-only coordination; developer credentials are never stored here. */
+  sync?: import('./sync/model').SyncState
+  /** Locally archived account/library partitions; never part of a cloud payload or ordinary export. */
+  localSyncSpaces?: Record<string, Omit<Notebook, 'localSyncSpaces'>>
 }

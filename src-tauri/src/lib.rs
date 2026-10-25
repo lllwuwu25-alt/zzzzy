@@ -11,6 +11,9 @@ mod ai;
 mod ai_settings;
 mod license;
 mod exports;
+mod sync_session;
+mod sync_policy;
+mod android;
 #[cfg(test)]
 mod license_tests;
 #[cfg(test)]
@@ -73,6 +76,7 @@ fn read_dropped_images_impl(paths: Vec<String>) -> Result<DroppedImages, String>
 }
 
 #[tauri::command]
+#[cfg(not(target_os = "android"))]
 fn choose_workspace_folder() -> Result<Option<String>, String> {
     #[cfg(target_os = "macos")]
     let output = Command::new("osascript")
@@ -98,6 +102,13 @@ fn choose_workspace_folder() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+#[cfg(target_os = "android")]
+fn choose_workspace_folder() -> Result<Option<String>, String> {
+    Err("手机版使用应用私有目录保存，请用备份与恢复导出到系统文件夹。".into())
+}
+
+#[tauri::command]
+#[cfg(not(target_os = "android"))]
 fn open_workspace_folder(path: String) -> Result<(), String> {
     if !Path::new(&path).is_dir() {
         return Err("工作区文件夹不存在".into());
@@ -113,6 +124,12 @@ fn open_workspace_folder(path: String) -> Result<(), String> {
     status.map_err(|error| error.to_string()).and_then(|result| {
         if result.success() { Ok(()) } else { Err("系统没有成功打开文件夹".into()) }
     })
+}
+
+#[tauri::command]
+#[cfg(target_os = "android")]
+fn open_workspace_folder(_path: String) -> Result<(), String> {
+    Err("手机应用私有目录不可直接打开，请导出备份到系统文件夹。".into())
 }
 
 fn write_atomic(target: &Path, contents: &str) -> Result<(), String> {
@@ -196,8 +213,19 @@ fn write_workspace_notebook(app: tauri::AppHandle, path: String, contents: Strin
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            #[cfg(target_os = "android")]
+            {
+                if !android::is_test(app.handle()) { return Err("Android test application identity mismatch".into()); }
+                app.handle().plugin(android::init())?;
+                app.handle().plugin(tauri_plugin_barcode_scanner::init())?;
+            }
+            #[cfg(not(target_os = "android"))]
+            let _ = app;
+            Ok(())
+        })
         .manage(ai::Requests::default())
-        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images, license::get_license_status, license::import_license, exports::export_license_request, exports::export_notebook_backup, ai_settings::get_ai_settings, ai_settings::save_ai_settings, ai_settings::delete_ai_key, ai::recognize_ai_question, ai::cancel_ai_request, ai::test_ai_connection])
+        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images, license::get_license_status, license::import_license, exports::export_license_request, exports::export_notebook_backup, ai_settings::get_ai_settings, ai_settings::save_ai_settings, ai_settings::delete_ai_key, ai::recognize_ai_question, ai::cancel_ai_request, ai::test_ai_connection, sync_session::sync_gateway_request, sync_session::open_feishu_authorization, sync_session::create_sync_backup, sync_session::open_sync_backup_folder, android::pick_android_images])
         .run(app_context())
         .expect("error while running mistake notebook");
 }

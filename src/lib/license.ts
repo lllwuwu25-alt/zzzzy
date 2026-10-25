@@ -32,6 +32,7 @@ export function makeActivationRequest(status: LicenseStatus) {
   return { version: 1, product: 'mistake-notebook', machineCode: status.machineCode, platform: status.platform }
 }
 export function exportNotebookData(notebook: Notebook): string {
+  if (notebook.items.some((item) => item.images.some((image) => !image.dataUrl || image.dataUrl.endsWith('base64,')))) throw Error('尚有原图未下载，不能导出为完整备份。请先在云同步中下载整套题库图片，再导出备份。')
   const { version, workspaceName, items, reviews, taxonomy, reviewSettings, workspaceUpdatedAt } = notebook
   return JSON.stringify({ version, workspaceName, items, reviews, taxonomy, reviewSettings, workspaceUpdatedAt }, null, 2)
 }

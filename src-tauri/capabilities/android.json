@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android-camera",
+  "description": "仅本地安卓主界面的扫码相机；不开放私有凭据桥接。",
+  "local": true,
+  "windows": ["main"],
+  "platforms": ["android"],
+  "permissions": ["barcode-scanner:allow-scan", "barcode-scanner:allow-cancel", "barcode-scanner:allow-check-permissions", "barcode-scanner:allow-request-permissions"]
+}

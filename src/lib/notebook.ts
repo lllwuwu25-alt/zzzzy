@@ -1,5 +1,6 @@
 import type { Annotation, ImageAsset, Mistake, Notebook, Rating, Review, Schedule, Taxonomy } from '../types'
 import { normalizeMistakeType } from './question-types'
+import { validateSyncState } from '../sync/model'
 
 const ratings: Rating[] = ['again', 'hard', 'good', 'easy']
 const imageData = /^data:image\/(png|jpe?g|webp|gif|bmp);base64,/i
@@ -68,5 +69,12 @@ export function parseNotebookBackup(value: unknown): Notebook {
     throw new Error('invalid-notebook-backup')
   }
   const notebook = value as unknown as Notebook
-  return { ...notebook, items: notebook.items.map(normalizeMistakeType) }
+  if (notebook.localSyncSpaces !== undefined) {
+    if (!record(notebook.localSyncSpaces) || Object.keys(notebook.localSyncSpaces).length > 100) throw new Error('invalid-local-sync-spaces')
+    for (const space of Object.values(notebook.localSyncSpaces)) {
+      if (!record(space) || 'localSyncSpaces' in space) throw new Error('invalid-local-sync-spaces')
+      parseNotebookBackup(space)
+    }
+  }
+  return { ...notebook, items: notebook.items.map(normalizeMistakeType), ...(notebook.sync === undefined ? {} : { sync: validateSyncState(notebook.sync) }) }
 }

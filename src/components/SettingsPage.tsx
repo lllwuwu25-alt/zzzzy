@@ -1,7 +1,9 @@
 import { AiSettings } from './ai/AiSettings'
 import { MotionSettings } from './MotionSettings'
 import { ThemeSettings } from './ThemeSettings'
-import { LicenseSettings } from './license/LicenseSettings'
+import { LicenseSettings as DesktopLicenseSettings } from './license/LicenseSettings'
+import { CloudSettings } from './sync/CloudSettings'
+import { nativeAndroidBuild, nativeDesktopBuild } from "../lib/platform"
 import { saveNotebookBackup } from '../lib/license'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -35,7 +37,7 @@ export function SettingsPage() {
   const fileInput = useRef<HTMLInputElement>(null)
   const [workspaceNotice, setWorkspaceNotice] = useState('')
   const [backupNotice, setBackupNotice] = useState('')
-  const isDesktop = isTauri()
+  const isDesktop = nativeDesktopBuild()
   const exportData = async () => {
     const data: Notebook = { version: 1, items: notebook.items, reviews: notebook.reviews, taxonomy: notebook.taxonomy, reviewSettings: notebook.reviewSettings, workspaceName: notebook.workspaceName, workspaceUpdatedAt: new Date().toISOString() }
     try { const path = await saveNotebookBackup(data); setBackupNotice(path ? '完整备份已导出。' : '') }
@@ -48,7 +50,7 @@ export function SettingsPage() {
     if (fileInput.current) fileInput.current.value = ''
   }
   const chooseWorkspace = async () => {
-    if (!isDesktop) { setWorkspaceNotice('网页预览无法访问系统文件夹，请在桌面版中使用。'); return }
+    if (!isDesktop) { setWorkspaceNotice('手机使用应用私有目录保存；请用下方导出备份选择系统保存位置。'); return }
     try { const path = await invoke<string | null>('choose_workspace_folder'); if (path) { await setWorkspace(path); setWorkspaceNotice('工作区已绑定，后续修改会同步写入 notebook.json。') } } catch { setWorkspaceNotice('没有完成文件夹绑定，或该文件夹无法写入。请选择其他文件夹后重试。') }
   }
   const openWorkspace = async () => {
@@ -56,5 +58,7 @@ export function SettingsPage() {
     if (!isDesktop) { setWorkspaceNotice('网页预览无法打开 Finder，请在桌面版中使用。'); return }
     try { await invoke('open_workspace_folder', { path: notebook.workspacePath }) } catch { setWorkspaceNotice('无法打开该文件夹，它可能已经被移动或删除。') }
   }
-  return <div className="page settings-page"><div className="page-heading"><div><h1>设置</h1><p>掌控复习节奏、工作区、备份和考试目录。</p></div></div><LicenseSettings /><section id="ai-settings" className="settings-section ai-settings-section"><div><h2>AI 辅助识别</h2><p>按需一键使用 DeepSeek 提取题目信息，也可直接手动填写。</p></div><AiSettings /></section><section className="settings-section"><div><h2>外观与动效</h2><p>换一种适合此刻的色彩，保留熟悉的学习节奏。</p></div><div className="appearance-controls"><ThemeSettings /><MotionSettings /></div></section><section className="settings-section catalog-settings"><div><h2>考试目录</h2><p>自定义考试、科目和章节。改名会同步更新已有错题；仍被使用的目录不会被误删。</p></div><CatalogManager /></section><section className="settings-section"><div><h2>复习周期</h2><p>继续使用自适应安排，或自行决定四档反馈分别间隔多少天。</p></div><ReviewCycleSettings /></section><section className="settings-section"><div><h2>本地工作区</h2><p>绑定后会在所选文件夹中维护可读的 notebook.json，并保留设备内副本。</p></div><div><div className="settings-action"><FolderCog size={20} /><div><strong>{notebook.workspaceName}</strong><span title={notebook.workspacePath || undefined}>{notebook.workspacePath || `${notebook.items.length} 道错题 · ${notebook.reviews.length} 条复习记录`}</span></div><div className="workspace-buttons"><button className="button ghost" onClick={() => void openWorkspace()} disabled={!notebook.workspacePath}><FolderOpen size={16} />打开文件夹</button><button className="button ghost" onClick={() => void chooseWorkspace()}>{notebook.workspacePath ? '重新定位' : '选择文件夹'}</button></div></div>{workspaceNotice && <p className="workspace-notice" role="status">{workspaceNotice}</p>}</div></section><section className="settings-section"><div><h2>备份与恢复</h2><p>备份包含题目元数据、图片和复习记录；导入前会先校验文件结构。</p></div><div><div className="button-row"><button className="button ghost" onClick={exportData}><FileArchive size={16} />导出备份</button><button className="button ghost" onClick={() => fileInput.current?.click()}><Upload size={16} />从备份恢复</button><input ref={fileInput} hidden type="file" accept="application/json,.json" onChange={(e) => void importData(e.target.files?.[0])} /></div>{backupNotice && <p className="workspace-notice" role="status">{backupNotice}</p>}</div></section><section className="settings-section"><div><h2>回收站</h2><p>仅永久清理删除已满 30 天的内容，近期误删仍可恢复。</p></div><button className="button danger" onClick={purge}><Trash2 size={16} />清理到期内容</button></section></div>
+  return <div className="page settings-page"><div className="page-heading"><div><h1>设置</h1><p>掌控复习节奏、工作区、备份和考试目录。</p></div></div><LicenseSettings /><CloudSettings /><section id="ai-settings" className="settings-section ai-settings-section"><div><h2>AI 辅助识别</h2><p>按需一键使用 DeepSeek 提取题目信息，也可直接手动填写。</p></div><AiSettings /></section><section className="settings-section"><div><h2>外观与动效</h2><p>换一种适合此刻的色彩，保留熟悉的学习节奏。</p></div><div className="appearance-controls"><ThemeSettings /><MotionSettings /></div></section><section className="settings-section catalog-settings"><div><h2>考试目录</h2><p>自定义考试、科目和章节。改名会同步更新已有错题；仍被使用的目录不会被误删。</p></div><CatalogManager /></section><section className="settings-section"><div><h2>复习周期</h2><p>继续使用自适应安排，或自行决定四档反馈分别间隔多少天。</p></div><ReviewCycleSettings /></section><section className="settings-section"><div><h2>本地工作区</h2><p>绑定后会在所选文件夹中维护可读的 notebook.json，并保留设备内副本。</p></div><div><div className="settings-action"><FolderCog size={20} /><div><strong>{notebook.workspaceName}</strong><span title={notebook.workspacePath || undefined}>{notebook.workspacePath || `${notebook.items.length} 道错题 · ${notebook.reviews.length} 条复习记录`}</span></div><div className="workspace-buttons" hidden={nativeAndroidBuild()}><button className="button ghost" onClick={() => void openWorkspace()} disabled={!notebook.workspacePath}><FolderOpen size={16} />打开文件夹</button><button className="button ghost" onClick={() => void chooseWorkspace()}>{notebook.workspacePath ? '重新定位' : '选择文件夹'}</button></div></div>{workspaceNotice && <p className="workspace-notice" role="status">{workspaceNotice}</p>}</div></section><section className="settings-section"><div><h2>备份与恢复</h2><p>备份包含题目元数据、图片和复习记录；导入前会先校验文件结构。</p></div><div><div className="button-row"><button className="button ghost" onClick={exportData}><FileArchive size={16} />导出备份</button><button className="button ghost" onClick={() => fileInput.current?.click()}><Upload size={16} />从备份恢复</button><input ref={fileInput} hidden type="file" accept="application/json,.json" onChange={(e) => void importData(e.target.files?.[0])} /></div>{backupNotice && <p className="workspace-notice" role="status">{backupNotice}</p>}</div></section><section className="settings-section"><div><h2>回收站</h2><p>仅永久清理删除已满 30 天的内容，近期误删仍可恢复。</p></div><button className="button danger" onClick={purge}><Trash2 size={16} />清理到期内容</button></section></div>
 }
+
+function LicenseSettings() { return nativeAndroidBuild() ? <section className="settings-section"><div><h2>安卓测试版</h2><p>仅供本机功能与双端同步验收，不代表商业购买授权。</p></div><p className="android-test-note">本机资料保存在独立应用私有目录，关闭应用不会丢失。卸载或清除数据前请导出备份；云端访问必须完成飞书登录与电脑确认。</p></section> : <DesktopLicenseSettings/> }

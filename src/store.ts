@@ -4,7 +4,9 @@ import { initialNotebook } from './data'
 import { duePriority, scheduleReview } from './lib/fsrs'
 import { parseNotebookBackup } from './lib/notebook'
 import { defaultTypeContent, normalizeMistakeType } from './lib/question-types'
-import { readWebNotebook, writeWebNotebook, migrateWebNotebook } from './lib/web-notebook-storage'
+import { readWebNotebook, writeWebNotebook, migrateWebNotebook, writeWebSyncBackup } from './lib/web-notebook-storage'
+import { attachNotebook, prepareLocalCommit, type MaybeSyncNotebook } from './sync/model'
+import type { SyncIdentity } from './sync/protocol'
 import type { ImageAsset, Mistake, Notebook, QuestionType, Rating, Review, ReviewSettings, Schedule } from './types'
 
 const KEY = 'mistake-notebook-v1'
@@ -87,7 +89,7 @@ const publishPending = () => {
   }
   useNotebook.setState(projected)
 }
-const queueMutation = (build: Mutation['build'], optimistic = false, requireWorkspace = false) => {
+const queueMutation = (build: Mutation['build'], optimistic = false, requireWorkspace = false, fromCloud = false, backupFirst = false) => {
   committedState ??= useNotebook.getState()
   const mutation = { build, optimistic }
   mutations.push(mutation)
@@ -96,7 +98,13 @@ const queueMutation = (build: Mutation['build'], optimistic = false, requireWork
     try {
       const patch = build(committedState!)
       if (patch) {
-        const next = { ...committedState!, ...patch }
+        let next = { ...committedState!, ...patch }
+        if (!fromCloud && committedState!.sync) next = { ...next, ...prepareLocalCommit(core(committedState!), core(next)) }
+        if (backupFirst || (!committedState!.sync && next.sync)) {
+          const backup = JSON.stringify(core(committedState!))
+          if (isTauri()) await invoke('create_sync_backup', { contents: backup })
+          else await writeWebSyncBackup(backup)
+        }
         await persistNotebook(core(next), requireWorkspace)
         committedState = next
       }
@@ -118,7 +126,31 @@ const core = (state: State): Notebook => ({
   workspaceName: state.workspaceName,
   workspacePath: state.workspacePath,
   workspaceUpdatedAt: state.workspaceUpdatedAt,
+  sync: state.sync,
+  localSyncSpaces: state.localSyncSpaces,
 })
+
+export const readSyncNotebook = (): MaybeSyncNotebook => core(useNotebook.getState())
+/** All remote applications/acks share the existing serialized durable commit lane. */
+export const transactSyncNotebook = (build: (notebook: MaybeSyncNotebook) => MaybeSyncNotebook) => queueMutation((state) => build(core(state)), false, false, true)
+export const attachCloudNotebook = (identity: SyncIdentity, deviceId: string) => transactSyncNotebook((notebook) => attachNotebook(notebook, identity, deviceId))
+const spaceKey = (identity: SyncIdentity) => JSON.stringify([identity.environment, identity.accountId, identity.libraryId])
+/** Explicit account switch: archive A with its queue, activate B's own copy, never import A into B. */
+export const switchCloudSpace = (identity: SyncIdentity, deviceId: string) => queueMutation((state) => {
+  const { localSyncSpaces, ...current } = core(state)
+  if (!current.sync) throw new Error('SYNC_NOT_ATTACHED')
+  const spaces = { ...localSyncSpaces, [spaceKey(current.sync.identity)]: current }
+  const target = spaces[spaceKey(identity)] ?? { ...clone(initialNotebook), workspaceName: '飞书题库 · 本机副本' }
+  const active = attachNotebook(target, identity, deviceId)
+  return { ...active, localSyncSpaces: spaces, lastReview: undefined }
+}, false, false, true, true)
+export const clearCloudLocalCopy = () => queueMutation((state) => {
+  if (!state.sync) return
+  if (state.sync.outbox.length || state.sync.conflicts.length) throw new Error('仍有待同步内容或未解决冲突，请先导出备份或保留本机副本。')
+  const spaces = { ...state.localSyncSpaces }
+  delete spaces[spaceKey(state.sync.identity)]
+  return { ...clone(initialNotebook), sync: undefined, localSyncSpaces: spaces, workspacePath: undefined, workspaceUpdatedAt: undefined, lastReview: undefined }
+}, false, false, true, true)
 
 export const useNotebook = create<State>((_set, get) => ({
   ...load(),
@@ -162,6 +194,8 @@ export const useNotebook = create<State>((_set, get) => ({
   trashItem: (id) => get().updateItem(id, { status: 'trashed', deletedAt: new Date().toISOString() }),
   restoreItem: (id) => get().updateItem(id, { status: 'ready', deletedAt: undefined }),
   purgeExpired: () => optimisticUpdate((state) => {
+    // Keep synchronized tombstones and referenced originals until a future retention protocol exists.
+    if (state.sync) return
     const cutoff = Date.now() - 30 * 86_400_000
     const next = { ...state, items: state.items.filter((item) => item.status !== 'trashed' || !item.deletedAt || new Date(item.deletedAt).getTime() > cutoff) }
     return next
@@ -319,17 +353,12 @@ export async function hydrateNotebook() {
     // Keep the legacy value untouched as a recovery backup. All future writes use IndexedDB.
     return
   }
-  try {
-    const contents = await invoke<string | null>('read_app_notebook')
-    if (!contents) {
-      await queueMutation(() => ({}))
-      return
-    }
-    const notebook = parseNotebookBackup(normalizeNotebook(JSON.parse(contents) as Partial<Notebook>))
-    useNotebook.setState({ ...notebook, lastReview: undefined })
-  } catch {
-    // Keep the legacy localStorage state so an older installation can still open.
-  }
+  const contents = await invoke<string | null>('read_app_notebook')
+  // A new unactivated installation must be able to reach licensing without a write.
+  // Existing corrupt/unsupported data must reach StorageRecovery, never an empty writable notebook.
+  if (!contents) return
+  const notebook = parseNotebookBackup(normalizeNotebook(JSON.parse(contents) as Partial<Notebook>))
+  useNotebook.setState({ ...notebook, lastReview: undefined })
 }
 
 function captureItem(id: string, images: ImageAsset[], stamp: string, questionType: QuestionType = 'short-answer'): Mistake {

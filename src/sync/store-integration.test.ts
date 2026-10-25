@@ -1,0 +1,67 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { initialNotebook } from '../data'
+const writes = vi.hoisted(() => ({ notebooks: [] as string[], backups: [] as string[], fail: false, native: false, nativeContents: null as string | null, nativeCalls: [] as string[] }))
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => writes.native, invoke: async (name: string) => { writes.nativeCalls.push(name); if (name === 'read_app_notebook') return writes.nativeContents; throw Error('native write before activation is forbidden') } }))
+vi.mock('../lib/web-notebook-storage', () => ({ readWebNotebook: async () => null, migrateWebNotebook: async (data: string) => data, writeWebNotebook: async (data: string) => { if (writes.fail) throw Error('disk-full'); writes.notebooks.push(data) }, writeWebSyncBackup: async (data: string) => { writes.backups.push(data); return 'backup-id' } }))
+describe('existing store sync durability', () => {
+  beforeEach(() => { vi.resetModules(); writes.notebooks = []; writes.backups = []; writes.fail = false; writes.native = false; writes.nativeContents = null; writes.nativeCalls = []; vi.stubGlobal('localStorage', { getItem: () => null }) })
+  it('backs up existing notebook before first attachment and persists subsequent edit with its outbox', async () => {
+    const store = await import('../store')
+    await store.useNotebook.getState().replaceNotebook(structuredClone(initialNotebook))
+    await store.attachCloudNotebook({ accountId: 'a', libraryId: 'l', environment: 'staging' }, 'd')
+    expect(writes.backups).toHaveLength(1)
+    expect(JSON.parse(writes.backups[0]).sync).toBeUndefined()
+    await store.useNotebook.getState().addTypedCaptures([{ images: [], questionType: 'short-answer' }])
+    const saved = JSON.parse(writes.notebooks.at(-1)!)
+    expect(saved.items).toHaveLength(1)
+    expect(saved.sync.outbox.some((op: { kind: string }) => op.kind === 'question')).toBe(true)
+  })
+  it('does not report an unsaved local edit or outbox as committed when persistence rejects', async () => {
+    const store = await import('../store')
+    await store.attachCloudNotebook({ accountId: 'a', libraryId: 'l', environment: 'staging' }, 'd')
+    const before = JSON.stringify(store.useNotebook.getState().sync)
+    writes.fail = true
+    await expect(store.useNotebook.getState().addTypedCaptures([{ images: [], questionType: 'short-answer' }])).rejects.toThrow('disk-full')
+    expect(store.useNotebook.getState().items).toHaveLength(0)
+    expect(JSON.stringify(store.useNotebook.getState().sync)).toBe(before)
+  })
+  it('switches to a separate account space without sending the previous account outbox to it', async () => {
+    const store = await import('../store')
+    await store.attachCloudNotebook({ accountId: 'a', libraryId: 'l-a', environment: 'staging' }, 'd-a')
+    await store.useNotebook.getState().addTypedCaptures([{ images: [], questionType: 'short-answer' }])
+    const a = JSON.stringify(store.useNotebook.getState().sync)
+    await store.switchCloudSpace({ accountId: 'b', libraryId: 'l-b', environment: 'staging' }, 'd-b')
+    expect(store.useNotebook.getState().items).toHaveLength(0)
+    expect(store.useNotebook.getState().sync!.outbox).toHaveLength(0)
+    expect(store.useNotebook.getState().sync!.identity.accountId).toBe('b')
+    await store.switchCloudSpace({ accountId: 'a', libraryId: 'l-a', environment: 'staging' }, 'd-a')
+    expect(store.useNotebook.getState().items).toHaveLength(1)
+    expect(JSON.stringify(store.useNotebook.getState().sync)).toBe(a)
+    expect(writes.backups.length).toBeGreaterThanOrEqual(3)
+  })
+  it('does not silently replace native business data with an empty notebook when sync metadata is corrupt', async () => {
+    writes.native = true
+    writes.nativeContents = JSON.stringify({ ...initialNotebook, sync: { schemaVersion: 99 } })
+    const store = await import('../store')
+    await expect(store.hydrateNotebook()).rejects.toThrow()
+    expect(writes.nativeCalls).toEqual(['read_app_notebook'])
+  })
+  it('allows a fresh unactivated app to reach activation without attempting a gated empty-file write', async () => {
+    writes.native = true
+    const store = await import('../store')
+    await expect(store.hydrateNotebook()).resolves.toBeUndefined()
+    expect(writes.nativeCalls).toEqual(['read_app_notebook'])
+  })
+  it('requires a clean queue before explicitly clearing only the active local account copy', async () => {
+    const store = await import('../store')
+    await store.attachCloudNotebook({ accountId: 'a', libraryId: 'l', environment: 'staging' }, 'd')
+    await store.useNotebook.getState().addTypedCaptures([{ images: [], questionType: 'short-answer' }])
+    await expect(store.clearCloudLocalCopy()).rejects.toThrow('待同步')
+    expect(store.useNotebook.getState().items).toHaveLength(1)
+    await store.transactSyncNotebook((notebook) => ({ ...notebook, sync: { ...notebook.sync!, outbox: [] } }))
+    await store.clearCloudLocalCopy()
+    expect(store.useNotebook.getState().items).toHaveLength(0)
+    expect(store.useNotebook.getState().sync).toBeUndefined()
+    expect(writes.backups.length).toBeGreaterThanOrEqual(2)
+  })
+})

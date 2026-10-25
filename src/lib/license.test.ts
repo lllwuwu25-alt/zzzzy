@@ -3,6 +3,7 @@ const native = vi.hoisted(() => ({ invoke: vi.fn(), isTauri: vi.fn() }))
 vi.mock('@tauri-apps/api/core', () => native)
 import { activateLicense, canUseWorkbench, exportNotebookData, getLicenseStatus, makeActivationRequest, saveActivationRequest, saveNotebookBackup } from './license'
 import { initialNotebook } from '../data'
+import type { Notebook } from '../types'
 
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllEnvs() })
 const required = { state: 'unactivated', canWrite: false, machineCode: 'CTB1-' + Array(8).fill('11111111').join('-'), platform: 'macos', purchaseCode: null, licenseId: null, message: '尚未激活' } as const
@@ -49,4 +50,8 @@ it('uses native save dialogs for desktop requests and read-only backups without 
   native.invoke.mockClear()
   expect(await saveActivationRequest(required)).toContain('backup.json')
   expect(native.invoke).toHaveBeenCalledWith('export_license_request')
+})
+it('never labels a backup complete when cloud originals have not been downloaded', () => {
+  const notebook = { ...structuredClone(initialNotebook), items: [{ images: [{ id: 'missing-image', dataUrl: 'data:image/png;base64,' }] }] } as unknown as Notebook
+  expect(() => exportNotebookData(notebook)).toThrow('原图')
 })

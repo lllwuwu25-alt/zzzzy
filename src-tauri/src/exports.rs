@@ -55,6 +55,9 @@ pub async fn export_license_request(app: tauri::AppHandle) -> Result<Option<Stri
 }
 #[tauri::command]
 pub async fn export_notebook_backup(app: tauri::AppHandle, contents: String) -> Result<Option<String>, String> {
+    #[cfg(target_os = "android")]
+    { return crate::android::export_json(&app, &prepare_backup(&contents)?, "错题本完整备份.json").await; }
+    #[cfg(not(target_os = "android"))]
     save(&app, &prepare_backup(&contents)?, "错题本完整备份.json")
 }
 

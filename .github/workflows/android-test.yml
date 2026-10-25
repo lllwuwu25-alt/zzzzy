@@ -1,0 +1,83 @@
+name: Android HONOR 90 test APK
+
+on:
+  push:
+    branches: ['codex/android-honor90-test']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VITE_ANDROID_TEST: 'true'
+      # Public URL only. App Secret and Feishu tokens must stay on the gateway.
+      VITE_SYNC_GATEWAY_URL: ${{ vars.SYNC_GATEWAY_URL }}
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_DEV_STRIP: debuginfo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Validate public gateway configuration
+        run: |
+          node --input-type=module -e 'const value=process.env.VITE_SYNC_GATEWAY_URL;if(value){const u=new URL(value);if(u.protocol!=="https:"||u.username||u.password||u.search||u.hash||u.pathname!=="/")throw Error("SYNC_GATEWAY_URL must be a public HTTPS origin")}else console.log("No gateway configured: APK supports local testing only; no live sync claim.")'
+      - name: Install and test existing application
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          node --test scripts/android-project.test.mjs
+          GATEWAY_TEST_TRANSPORT=memory node --test tools/sync-gateway/*.test.mjs
+      - name: Install Android build components
+        run: |
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.2.13676358'
+          echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - name: Generate Android project from existing Tauri app
+        run: |
+          npm run tauri -- icon src-tauri/icons/icon.png
+          npm run tauri -- android init --ci --skip-targets-install
+          node scripts/prepare-android.mjs
+      - name: Build isolated arm64 test APK
+        run: npm run tauri -- android build --debug --apk --target aarch64 --ci
+      - name: Verify and collect test installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p android-delivery
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -type f | head -1)
+          test -n "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > android-delivery/apk-inspection.txt
+          grep -q "package: name='local.mistake.notebook.androidtest'" android-delivery/apk-inspection.txt
+          grep -q "targetSdkVersion:'35'" android-delivery/apk-inspection.txt
+          grep -q "native-code: 'arm64-v8a'" android-delivery/apk-inspection.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK" >> android-delivery/apk-inspection.txt
+          cp "$APK" 'android-delivery/错题本-安卓测试版-HONOR90-Android15-arm64.apk'
+          cp docs/feishu-sync/android-test.md android-delivery/安装与测试说明.md
+          (cd android-delivery && sha256sum *.apk > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mistake-notebook-android-honor90-test-${{ github.run_number }}
+          path: android-delivery/
+          if-no-files-found: error
+          retention-days: 30

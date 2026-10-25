@@ -74,3 +74,27 @@ export async function migrateWebNotebook(contents: string): Promise<string> {
   // Another tab may have finished migration since the initial read. Never replace it.
   return (await transact('readwrite', contents, true))!
 }
+
+/** A complete pre-cloud recovery copy, separate from the mutable current record. */
+export async function writeWebSyncBackup(contents: string): Promise<string> {
+  const database = await openDatabase()
+  const key = `before-cloud:${new Date().toISOString()}:${crypto.randomUUID()}`
+  return new Promise((resolve, reject) => {
+    const tx = database.transaction(STORE, 'readwrite')
+    tx.objectStore(STORE).add(contents, key)
+    tx.oncomplete = () => { database.close(); resolve(key) }
+    tx.onabort = () => { database.close(); reject(tx.error ?? new Error('同步前备份失败')) }
+  })
+}
+
+export async function readLatestWebSyncBackup(): Promise<string | null> {
+  const database = await openDatabase()
+  return new Promise((resolve, reject) => {
+    let latest: string | null = null
+    const tx = database.transaction(STORE, 'readonly')
+    const request = tx.objectStore(STORE).openCursor(IDBKeyRange.bound('before-cloud:', 'before-cloud;'), 'prev')
+    request.onsuccess = () => { if (request.result) latest = request.result.value as string }
+    tx.oncomplete = () => { database.close(); resolve(latest) }
+    tx.onabort = () => { database.close(); reject(tx.error) }
+  })
+}

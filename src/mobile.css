@@ -1,0 +1,25 @@
+/* Native test app keeps the established themes; touch layout is structural. */
+html[data-platform="android-test"] { --mobile-safe-top: env(safe-area-inset-top, 0px); --mobile-safe-bottom: env(safe-area-inset-bottom, 0px); }
+html[data-platform="android-test"] body { overscroll-behavior-y: contain; }
+html[data-platform="android-test"] .cloud-mobile-entry { padding-top: max(28px, var(--mobile-safe-top)); padding-bottom: max(28px, var(--mobile-safe-bottom)); }
+.mobile-pairing { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding-block: 12px; }
+.mobile-pairing form { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.mobile-pairing label { display: grid; gap: 8px; font-size: 13px; }
+.mobile-pairing input { width: 100%; min-width: 0; }
+.mobile-pairing p { font-size: 12px; line-height: 1.7; margin: 0; color: var(--muted); }
+.android-test-note { padding-block: 8px; font-size: 13px; line-height: 1.8; color: var(--muted); }
+@media (max-width: 600px) {
+  html[data-platform="android-test"] .button, html[data-platform="android-test"] .icon-button { min-height: 44px; }
+  html[data-platform="android-test"] input, html[data-platform="android-test"] textarea, html[data-platform="android-test"] select { font-size: 16px; }
+  html[data-platform="android-test"] .topbar { padding-top: var(--mobile-safe-top); min-height: calc(64px + var(--mobile-safe-top)); height: auto; padding-inline: 10px; }
+  html[data-platform="android-test"] .topbar .capture-button { font-size: 12px; padding-inline: 10px; }
+  html[data-platform="android-test"] .mobile-camera-button { font-size: 12px; padding-inline: 10px; }
+  html[data-platform="android-test"] .topbar > div strong { font-size: 13px; white-space: nowrap; }
+  html[data-platform="android-test"] .cloud-local-banner { flex-wrap: wrap; position: relative; line-height: 1.6; }
+  html[data-platform="android-test"] .sidebar { padding-top: max(22px, var(--mobile-safe-top)); padding-bottom: max(22px, var(--mobile-safe-bottom)); }
+  html[data-platform="android-test"] .organizer-footer { padding-bottom: max(12px, var(--mobile-safe-bottom)); }
+  html[data-platform="android-test"] .review-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 24px - var(--mobile-safe-top) - var(--mobile-safe-bottom)); margin: auto; }
+  html[data-platform="android-test"] .button-row { flex-wrap: wrap; }
+  html[data-platform="android-test"] .cloud-section { min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .mobile-pairing * { transition: none !important; animation: none !important; } }

@@ -1,0 +1,37 @@
+{
+    email {$ACME_EMAIL}
+    http_port 8080
+    https_port 8443
+    admin off
+    # No access logs or HTTP error request dumps: OAuth query parameters are secrets.
+    log default {
+        output stdout
+        exclude http.log.access http.log.error
+    }
+}
+
+{$APP_DOMAIN} {
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Content-Security-Policy "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+        -Server
+    }
+    handle /v1/* {
+        request_body {
+            max_size 33554432
+        }
+        reverse_proxy gateway:8787 {
+            transport http {
+                response_header_timeout 180s
+            }
+        }
+    }
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+}

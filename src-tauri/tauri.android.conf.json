@@ -1,0 +1,9 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "错题本安卓测试版",
+  "identifier": "local.mistake.notebook.androidtest",
+  "app": {
+    "windows": [{ "label": "main", "title": "错题本 · 安卓测试版", "dragDropEnabled": false }]
+  },
+  "bundle": { "android": { "minSdkVersion": 28, "versionCode": 11101 } }
+}

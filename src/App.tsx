@@ -20,6 +20,7 @@ import { ActionButton } from './components/ActionButton'
 import { CaptureImportDialog, type TypedImportGroup } from './components/CaptureImportDialog'
 import { ImageEditor } from './components/ImageEditor'
 import { QuestionTypeFields } from './components/QuestionTypeFields'
+import { nativeAndroidBuild, nativeDesktopBuild } from './lib/platform'
 import { QuestionAnswerInput, QuestionAnswerReveal } from './components/QuestionAnswerInput'
 import { ratingIntervalHint } from './lib/fsrs'
 import { parseNotebookBackup } from './lib/notebook'
@@ -53,6 +54,7 @@ export function App() {
   const [captureFocus, setCaptureFocus] = useState<string>()
   const addTypedCaptures = useNotebook((state) => state.addTypedCaptures)
   const inboxCount = useNotebook((state) => state.items.filter((item) => item.status === 'inbox').length)
+  const cloudEnabled = useNotebook((state) => Boolean(state.sync))
   const pendingImport = importQueue[0]
 
   const captureAssets = useCallback(async (images: ImageAsset[], skipped = 0) => {
@@ -79,6 +81,21 @@ export function App() {
     await captureAssets(settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []), allEntries.length - supported.length + settled.filter((result) => result.status === 'rejected').length)
   }, [captureAssets])
 
+  const captureAndroid = useCallback(async (camera: boolean) => {
+    setCaptureBusy(true)
+    try {
+      if (camera) {
+        const scanner = await import('@tauri-apps/plugin-barcode-scanner')
+        if (await scanner.checkPermissions() !== 'granted' && await scanner.requestPermissions() !== 'granted') throw Error('请允许相机权限，或使用相册选择图片。')
+      }
+      const result = await invoke<{ images: Array<{ name: string; dataUrl: string }>; skipped: number }>('pick_android_images', { camera })
+      if (!result.images.length && !result.skipped) return
+      const assets = await Promise.allSettled(result.images.map((entry) => dataUrlToAsset(entry.name, entry.dataUrl)))
+      await captureAssets(assets.flatMap((entry) => entry.status === 'fulfilled' ? [entry.value] : []), result.skipped + assets.filter((entry) => entry.status === 'rejected').length)
+    } catch (error) { setCaptureNotice(readableError(error, '没有完成图片导入，请检查权限或空间后重试。')) }
+    finally { setCaptureBusy(false) }
+  }, [captureAssets])
+
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
       const files = Array.from(event.clipboardData?.files ?? [])
@@ -89,7 +106,7 @@ export function App() {
   }, [addFiles])
 
   useEffect(() => {
-    if (!isTauri()) return
+    if (!nativeDesktopBuild()) return
     let mounted = true
     const stop = startDesktopDropListener(async handler => {
       const { getCurrentWebview } = await import('@tauri-apps/api/webview')
@@ -145,8 +162,8 @@ export function App() {
       <section className="workspace">
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setMobileNav(true)}><Menu size={19} /></button>
-          <div><strong>{navigation.find((item) => item.id === page)?.label}</strong><span>{page === 'review' ? '把注意力留给眼前这一题' : '错题资料仅保存在你的设备上'}</span></div>
-          <CaptureButton onFiles={addFiles} />
+          <div><strong>{navigation.find((item) => item.id === page)?.label}</strong><span>{page === 'review' ? '把注意力留给眼前这一题' : cloudEnabled ? '本机优先保存 · 飞书按需同步' : '错题资料仅保存在你的设备上'}</span></div>
+          <CaptureButton onFiles={addFiles} onAndroidCapture={captureAndroid} />
         </header>
         <main id="main" className="page-transition" key={page}>
           {page === 'review' && <ReviewDeck onGoInbox={() => setPage('inbox')} />}
@@ -163,9 +180,10 @@ export function App() {
   )
 }
 
-function CaptureButton({ onFiles }: { onFiles: (files: FileList) => void }) {
+function CaptureButton({ onFiles, onAndroidCapture }: { onFiles: (files: FileList) => void; onAndroidCapture?: (camera: boolean) => Promise<void> }) {
   const input = useRef<HTMLInputElement>(null)
-  return <><button type="button" className="button primary capture-button" onClick={() => input.current?.click()}><ImagePlus size={17} />收录截图</button><input ref={input} hidden type="file" accept={IMAGE_ACCEPT} multiple onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} /></>
+  const camera = useRef<HTMLInputElement>(null)
+  return <><button type="button" className="button primary capture-button" onClick={() => { if (nativeAndroidBuild() && onAndroidCapture) void onAndroidCapture(false); else input.current?.click() }}><ImagePlus size={17} />{nativeAndroidBuild() ? '相册录题' : '收录截图'}</button><button type="button" className="button ghost mobile-camera-button" onClick={() => { if (nativeAndroidBuild() && onAndroidCapture) void onAndroidCapture(true); else camera.current?.click() }}>拍照录题</button><input ref={camera} hidden type="file" accept="image/*" capture="environment" onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} /><input ref={input} hidden type="file" accept={IMAGE_ACCEPT} multiple onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} /></>
 }
 
 function CaptureDropZone({ onFiles, compact = false }: { onFiles: (files: FileList) => void; compact?: boolean }) {
