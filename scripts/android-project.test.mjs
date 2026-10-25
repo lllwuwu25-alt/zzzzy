@@ -21,5 +21,6 @@ test('test APK workflow never publishes a release or targets main', () => {
   assert.match(workflow, /android build --debug --apk --target aarch64 --ci/)
   assert.match(workflow, /VITE_ANDROID_TEST: 'true'/)
   assert.match(workflow, /contents: read/)
+  assert.match(workflow, /packages: platform-tools/)
   assert.doesNotMatch(workflow, /contents: write|tauri-action|releaseName|tagName|gh release|branches:.*main/)
 })
