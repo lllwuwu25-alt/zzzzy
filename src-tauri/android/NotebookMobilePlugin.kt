@@ -1,6 +1,7 @@
 package local.mistake.notebook.mobile
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.Manifest
 import android.content.pm.PackageManager
@@ -32,6 +33,8 @@ import javax.crypto.spec.GCMParameterSpec
 @InvokeArg class UrlArgs { lateinit var url: String }
 @InvokeArg class ExportArgs { lateinit var name: String; lateinit var contents: String }
 @InvokeArg class CaptureArgs { var camera: Boolean = false }
+@InvokeArg class SnapshotOption { lateinit var name: String; var modifiedMs: Long = 0; var size: Long = 0 }
+@InvokeArg class SnapshotArgs { lateinit var snapshots: Array<SnapshotOption> }
 
 /** Invoked only from Rust's private bridge, never a public frontend credential API. */
 @TauriPlugin
@@ -102,6 +105,18 @@ class NotebookMobilePlugin(private val activity: Activity): Plugin(activity) {
             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE, args.name)
             startActivityForResult(invoke, intent, "exportResult")
         } catch (_: Exception) { invoke.reject("无法打开系统保存窗口") }
+    }
+    @Command fun selectSnapshot(invoke: Invoke) {
+        try {
+            val snapshots = invoke.parseArgs(SnapshotArgs::class.java).snapshots
+            require(snapshots.isNotEmpty())
+            val format = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+            val labels = snapshots.map { format.format(java.util.Date(it.modifiedMs)) + " · " + (it.size / 1024).coerceAtLeast(1) + " KB" }.toTypedArray()
+            AlertDialog.Builder(activity).setTitle("选择同步前自动备份")
+                .setItems(labels) { _, index -> invoke.resolve(JSObject().put("name", snapshots[index].name)) }
+                .setNegativeButton("取消") { _, _ -> invoke.resolve(JSObject()) }
+                .setOnCancelListener { invoke.resolve(JSObject()) }.show()
+        } catch (_: Exception) { invoke.reject("无法选择自动备份") }
     }
     @ActivityCallback fun exportResult(invoke: Invoke, result: ActivityResult) {
         if (result.resultCode != Activity.RESULT_OK) { invoke.resolve(JSObject()); return }

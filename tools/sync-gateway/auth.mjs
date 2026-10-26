@@ -323,7 +323,7 @@ export class GatewayAuth {
                 fail("DEVICE_REVOKED", "此设备已被撤销。", 403);
             const account = this.db.get('accounts', a.accountId);
             if (!account || device.accountId !== account.id) fail('ACCOUNT_STATE_INVALID', '账号状态不完整，请从备份核对。', 503);
-            if (account.firstDeviceAdmitted === false) {
+            if (account.firstDeviceAdmitted === false && device.type === 'desktop') {
                 if (this.db.list('devices').some(value => value.accountId === account.id && value.status === 'active')) fail('ACCOUNT_STATE_INVALID', '首台设备记录不一致，请核对恢复。', 503);
                 device = { ...device, status: 'active', activatedAt: this.now() };
                 this.db.put('accounts', account.id, { ...account, firstDeviceAdmitted: true });

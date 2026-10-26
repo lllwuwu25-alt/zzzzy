@@ -14,6 +14,7 @@ mod exports;
 mod sync_session;
 mod sync_policy;
 mod android;
+mod sync_backups;
 #[cfg(test)]
 mod license_tests;
 #[cfg(test)]
@@ -225,7 +226,7 @@ pub fn run() {
             Ok(())
         })
         .manage(ai::Requests::default())
-        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images, license::get_license_status, license::import_license, exports::export_license_request, exports::export_notebook_backup, ai_settings::get_ai_settings, ai_settings::save_ai_settings, ai_settings::delete_ai_key, ai::recognize_ai_question, ai::cancel_ai_request, ai::test_ai_connection, sync_session::sync_gateway_request, sync_session::open_feishu_authorization, sync_session::create_sync_backup, sync_session::open_sync_backup_folder, android::pick_android_images])
+        .invoke_handler(tauri::generate_handler![choose_workspace_folder, open_workspace_folder, read_app_notebook, write_app_notebook, write_workspace_notebook, read_dropped_images, license::get_license_status, license::import_license, exports::export_license_request, exports::export_notebook_backup, ai_settings::get_ai_settings, ai_settings::save_ai_settings, ai_settings::delete_ai_key, ai::recognize_ai_question, ai::cancel_ai_request, ai::test_ai_connection, sync_session::sync_gateway_request, sync_session::open_feishu_authorization, sync_session::create_sync_backup, sync_session::open_sync_backup_folder, android::pick_android_images, android::export_sync_backup])
         .run(app_context())
         .expect("error while running mistake notebook");
 }

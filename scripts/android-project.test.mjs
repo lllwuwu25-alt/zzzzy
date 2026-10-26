@@ -24,3 +24,9 @@ test('test APK workflow never publishes a release or targets main', () => {
   assert.match(workflow, /packages: platform-tools/)
   assert.doesNotMatch(workflow, /contents: write|tauri-action|releaseName|tagName|gh release|branches:.*main/)
 })
+test('JavaScript and Rust Tauri stay on the same minor version', () => {
+  const lock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'))
+  const cargo = readFileSync(new URL('../src-tauri/Cargo.lock', import.meta.url), 'utf8')
+  const rust = /name = "tauri"\nversion = "([^"]+)"/.exec(cargo)[1]
+  assert.equal(lock.packages['node_modules/@tauri-apps/api'].version.split('.').slice(0, 2).join('.'), rust.split('.').slice(0, 2).join('.'))
+})

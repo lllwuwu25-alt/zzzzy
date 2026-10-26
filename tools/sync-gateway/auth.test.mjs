@@ -81,6 +81,19 @@ function fixture() {
         refreshes: () => refreshes
     };
 }
+test('a phone-first login stays pending and does not strand the first desktop admission', async () => {
+    const f = fixture();
+    try {
+        const phone = await f.login('owner', { deviceType: 'mobile', deviceName: 'HONOR 90' });
+        assert.equal(phone.session.device.status, 'pending_device');
+        assert.throws(() => f.auth.requireActive(f.auth.authenticate(phone.sessionToken)), { code: 'DEVICE_PENDING' });
+        const desktop = await f.login();
+        assert.equal(desktop.session.device.status, 'active');
+        assert.equal(desktop.session.account.id, phone.session.account.id);
+        assert.equal(f.auth.authenticate(phone.sessionToken).status, 'pending_device');
+        assert.equal(f.db.list('devices').filter(device => device.status === 'active').length, 1);
+    } finally { f.db.close(); }
+});
 test('interrupted initial OAuth cannot permanently strand the first account before any session was admitted', async () => {
     const f = fixture();
     try {

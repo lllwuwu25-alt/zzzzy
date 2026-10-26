@@ -6,7 +6,7 @@ import { assertSyncIdentity, type MaybeSyncNotebook } from './model'
 import { attachCloudNotebook, clearCloudLocalCopy, readSyncNotebook, switchCloudSpace, transactSyncNotebook } from '../store'
 import { readLatestWebSyncBackup } from '../lib/web-notebook-storage'
 import { downloadText } from '../lib/license'
-import { appPlatform, cloudDeviceDescriptor, parseBindingLink } from '../lib/platform'
+import { appPlatform, cloudDeviceDescriptor, parseBindingLink, nativeAndroidBuild } from '../lib/platform'
 import { publicGatewayUrl } from './client'
 
 export type CloudPhase = 'checking' | 'unconfigured' | 'disconnected' | 'authorizing' | 'pending_device' | 'initializing' | 'connected' | 'syncing' | 'offline' | 'error'
@@ -167,6 +167,7 @@ export async function removeDevice(id: string) { try { await cloudClient().reque
 export async function renameCloudDevice(id: string, name: string) { try { await cloudClient().request('PATCH', `/v1/devices/${id}`, { name }); await refreshDevices() } catch (caught) { showError(caught) } }
 export async function showSyncBackup() {
   try {
+    if (nativeAndroidBuild()) { await invoke('export_sync_backup'); return }
     if (isTauri()) { await invoke('open_sync_backup_folder'); return }
     const contents = await readLatestWebSyncBackup()
     if (!contents) throw new CloudError('BACKUP_NOT_FOUND', '尚无同步前备份。首次连接前会自动创建。')

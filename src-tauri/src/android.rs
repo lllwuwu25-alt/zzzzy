@@ -50,6 +50,23 @@ pub async fn export_json(app: &tauri::AppHandle, contents: &str, name: &str) -> 
 }
 
 #[tauri::command]
+pub async fn export_sync_backup(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    #[cfg(not(target_os = "android"))]
+    { let _ = app; Err("桌面版请打开同步前备份文件夹。".into()) }
+    #[cfg(target_os = "android")]
+    {
+        let directory = app.path().app_data_dir().map_err(|_| "无法定位备份目录。")?.join("sync-backups");
+        let snapshots = super::sync_backups::catalog(&directory)?;
+        if snapshots.is_empty() { return Err("尚无同步前自动备份。首次连接或切换账号前会自动创建。".into()); }
+        let selected: serde_json::Value = app.state::<Mobile>().0.run_mobile_plugin_async("selectSnapshot", serde_json::json!({"snapshots":snapshots})).await.map_err(|_| "没有完成备份选择。")?;
+        let Some(name) = selected.get("name").and_then(serde_json::Value::as_str) else { return Ok(None); };
+        // Selection is checked again in Rust. Never accept an arbitrary private file path.
+        let contents = super::sync_backups::read(&directory, name)?;
+        export_json(&app, &contents, "错题本-同步前完整快照.json").await
+    }
+}
+
+#[tauri::command]
 pub async fn pick_android_images(app: tauri::AppHandle, camera: bool) -> Result<super::DroppedImages, String> {
     #[cfg(not(target_os = "android"))]
     { let _ = (app, camera); Err("此入口仅适用于安卓手机。".into()) }
