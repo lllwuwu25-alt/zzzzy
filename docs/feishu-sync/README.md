@@ -19,6 +19,7 @@
 4. [权限与官方接口核实](../feishu-permissions.md)
 5. [验收与未执行项目](verification.md)
 6. [正式发布阻断清单](production-checklist.md)
+7. [没有服务器时的首轮部署方案](first-server-plan.md)
 
 最新范围澄清：用户已确认 HONOR 90、Android 15，批准复用 Tauri 构建 arm64 测试 APK，通过独立分支 GitHub Actions 上传附件，不发布 Release。浏览器适配保留，手机测试主入口改为原生安卓 App。同步网关仍需要在线 HTTPS 服务，APK 并不能代替 OAuth 回调或安全保存 App Secret 的后端。见 [安卓安装与验收](android-test.md)。
 

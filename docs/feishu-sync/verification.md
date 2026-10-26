@@ -51,8 +51,8 @@ CARGO_INCREMENTAL=0 cargo test --manifest-path src-tauri/Cargo.toml --lib --offl
 | A18 | 切换账号 | 未执行 | A→B→A 的独立本机空间与待上传队列；请求级账号/库/环境断言阻止在登录切换竞态中错投 |
 | A19 | 限流/容量不足 | 未执行 | provider 错误映射、Retry-After、有限退避/暂停；没有伪造飞书剩余套餐容量 |
 | A20 | 云表/字段被手动改动 | 未执行 | 提交前哈希/修订、每轮最多三条巡检、五分钟字段只读巡检；发现异常暂停且不重建删除 |
-| A21 | Intel Mac + HarmonyOS | 未执行 | Intel Mac 编译/原生单测已执行；未安装新包进行 GUI、未取得真实鸿蒙浏览器证据 |
-| A22 | 电脑关机手机继续 | 未执行 | 独立网关 + 同源 PWA 架构与部署材料已给出，未真正部署并关机演练 |
+| A21 | Intel Mac + HONOR 90 / Android 15 | 未执行 | Intel Mac 编译/原生单测和 Android CI 编译已执行；未安装进行双端实机 GUI；原鸿蒙目标不视为已支持 |
+| A22 | 电脑关机手机继续 | 未执行 | 独立网关 + Android App 架构与部署材料已给出，未真正部署并关机演练 |
 | A23 | 完整备份/恢复 | 未执行 | 现有业务备份、图片/批注往返、本机前置快照、SQLite live-WAL 备份恢复测试；未缓存原图禁止假“完整备份”；真实恢复演练待验证 |
 | A24 | 游标重建/快照并发 | 未执行 | 高水位后并发墓碑回放、旧 epoch RESET_REQUIRED、本地 pending 保留、跨页延迟资产发布 |
 | A25 | 密钥泄漏检查 | 未执行 | 加密存储、Cookie/Bearer 隔离、白名单 payload/诊断、无二维码长 Token；前端构建合成哨兵扫描另记。不能替代真实部署日志/密钥审计 |
@@ -103,4 +103,6 @@ CARGO_INCREMENTAL=0 cargo test --manifest-path src-tauri/Cargo.toml --lib --offl
 - 一项 Minor 暂未处理：脱敏同步诊断仍将所有 Tauri 客户端标为 desktop；不影响实际设备类型与服务端准入，排查安卓问题时需结合安装包名称。真实手机、Feishu 与部署验证仍未执行。
 - Actions [40267600335](https://github.com/lllwuwu25-alt/zzzzy/actions/runs/40267600335) 已完成 Android/Kotlin/Rust 实际编译，APK 包名 `local.mistake.notebook.androidtest`、API 35、arm64 与签名检查通过并上传测试附件（对应提交 `3e90d8d`）。这不是实机安装或云同步验收。
 - 浏览器窄屏检查使用 Chrome 临时独立上下文及合成原生桥接，在 393×852 和 320×852 下执行本机入口 → 相册导入 → 题型 → 创建 → 编辑并等待保存。实际发现旧 CSS 固定 42px / 40px 宽度导致按钮竖排，已修复。复测按钮 95×44 / 104×44，无横向溢出、无 pageerror。脚本 `scripts/qa-android-ui.mjs` 可复跑；截图由脚本输出至 git 忽略的 `local-deliverables/android-ui-qa/`，不进入 APK。
-- 窄屏 UI 的桥接替身不验证相机、Keystore、原生文件选择器、软键盘和系统返回；这些继续保留实机待验状态。最终 UI 修复版需重新由 Actions 生成附件。
+- 窄屏 UI 的桥接替身不验证相机、Keystore、原生文件选择器、软键盘和系统返回；这些继续保留实机待验状态。
+- 最终 UI 修复包：Actions [40268954161](https://github.com/lllwuwu25-alt/zzzzy/actions/runs/40268954161) 全部成功，代码提交 `ac6241c`，测试附件 `12627737943`；本地下载后 ZIP SHA256 与 Actions digest 一致，APK SHA256 为 `7d899680035996529d9c545b1e81ff4b6679be483174c256850c2a8e3a9a14df`，53,436,685 字节。包名/API35/arm64/调试签名均经 CI 检查。未在 HONOR 90 上安装，未验证真实飞书。
+- 用户确认目前没有服务器与域名，先交付 [首轮部署方案](first-server-plan.md)；不自行购买或部署外部资源。当前 APK 未配置在线网关，先使用本机测试入口。后续真实联调需配置私有后端，再用同一个公开 HTTPS 地址重建匹配的电脑测试版和 APK。
