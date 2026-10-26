@@ -101,3 +101,6 @@ CARGO_INCREMENTAL=0 cargo test --manifest-path src-tauri/Cargo.toml --lib --offl
 - 本地回归：126 Vitest、30 既有发码/打包、57 网关、25 Intel Mac Rust、4 安卓构建契约测试通过。TypeScript + 安卓前端构建通过，仍有单 JS chunk >500 kB 的警告。
 - CI 首次停在已下架的 SDK `tools` 包，已明确覆盖为 `platform-tools`；第二次完成 SDK/NDK 与项目生成后，发现 npm 自动提升 API 到 2.12 与 Rust 2.11 不匹配。现已固定 API 2.11.1 / CLI 2.11.4，并新增版本一致性契约测试。后续实际 Android 编译结果以本分支 Actions 为准，不以本地 Mac 编译替代。
 - 一项 Minor 暂未处理：脱敏同步诊断仍将所有 Tauri 客户端标为 desktop；不影响实际设备类型与服务端准入，排查安卓问题时需结合安装包名称。真实手机、Feishu 与部署验证仍未执行。
+- Actions [40267600335](https://github.com/lllwuwu25-alt/zzzzy/actions/runs/40267600335) 已完成 Android/Kotlin/Rust 实际编译，APK 包名 `local.mistake.notebook.androidtest`、API 35、arm64 与签名检查通过并上传测试附件（对应提交 `3e90d8d`）。这不是实机安装或云同步验收。
+- 浏览器窄屏检查使用 Chrome 临时独立上下文及合成原生桥接，在 393×852 和 320×852 下执行本机入口 → 相册导入 → 题型 → 创建 → 编辑并等待保存。实际发现旧 CSS 固定 42px / 40px 宽度导致按钮竖排，已修复。复测按钮 95×44 / 104×44，无横向溢出、无 pageerror。脚本 `scripts/qa-android-ui.mjs` 可复跑；截图由脚本输出至 git 忽略的 `local-deliverables/android-ui-qa/`，不进入 APK。
+- 窄屏 UI 的桥接替身不验证相机、Keystore、原生文件选择器、软键盘和系统返回；这些继续保留实机待验状态。最终 UI 修复版需重新由 Actions 生成附件。

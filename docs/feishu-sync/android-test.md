@@ -40,3 +40,7 @@ Android 原生层使用应用私有文件夹保存 Notebook v1，沿用临时文
 - HONOR 90 实机安装、扫码相机、拍照、Keystore 锁屏/系统升级、文件提供者导出和 Android 返回行为必须由真机测试确认。
 - 后台常驻同步不作保证；恢复前台、联网和手动同步使用已有队列继续。
 - 既有 20 MiB 云附件 / 16 KiB 单记录业务 JSON 等限制仍有效，见 README 的限制清单。
+
+## 开发者窄屏回归（不是真机验证）
+
+在已有 Playwright 和 Chrome 的开发环境中，先运行 `VITE_ANDROID_TEST=true npm run dev -- --host 127.0.0.1 --port 5178`，再运行 `node scripts/qa-android-ui.mjs`。可设 `QA_VIEWPORT_WIDTH=320` 复测小屏；Playwright 在外部工具目录时，用 `PLAYWRIGHT_REQUIRE_FROM` 指向该环境的绝对 `package.json` 路径。脚本使用独立临时浏览器、合成图片、内存桥接，不使用真实账号或本机错题；不得据此认定 Android 原生或飞书测试已通过。
